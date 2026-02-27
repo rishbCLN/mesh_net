@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:provider/provider.dart';
 import '../models/location_update.dart';
+import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 
 class MapScreen extends StatefulWidget {
@@ -100,6 +101,10 @@ class _MapScreenState extends State<MapScreen>
         final myLoc = service.myLocation;
         final peers = service.peerLocations.values.toList();
         final survivorCount = peers.length + (myLoc != null ? 1 : 0);
+        final sosCount = peers.where((p) =>
+            p.triageStatus == TriageStatus.sos || p.isSOS).length;
+        final critCount = peers.where((p) =>
+            p.triageStatus == TriageStatus.critical).length;
 
         return Scaffold(
           backgroundColor: const Color(0xFF1A1A2E),
@@ -128,6 +133,32 @@ class _MapScreenState extends State<MapScreen>
                       'Updated ${_formatTime(_lastUpdated ?? DateTime.now())}',
                       style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
+                    if (sosCount > 0) ...[
+                      const SizedBox(width: 16),
+                      Icon(Icons.warning_rounded,
+                          size: 14, color: TriageStatus.sos.color),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$sosCount TRAPPED',
+                        style: TextStyle(
+                            color: TriageStatus.sos.color,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                    if (critCount > 0) ...[
+                      const SizedBox(width: 12),
+                      Icon(Icons.local_hospital_rounded,
+                          size: 14, color: TriageStatus.critical.color),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$critCount CRITICAL',
+                        style: TextStyle(
+                            color: TriageStatus.critical.color,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -171,19 +202,30 @@ class _MapScreenState extends State<MapScreen>
                     ],
                   ),
                 )
-              : AnimatedBuilder(
-                  animation: _pulseController,
-                  builder: (context, _) {
-                    return CustomPaint(
-                      painter: _MeshMapPainter(
-                        myLocation: myLoc,
-                        peers: peers,
-                        pulseValue: _pulseController.value,
-                        heading: _heading,
-                      ),
-                      child: const SizedBox.expand(),
-                    );
-                  },
+              : Stack(
+                  children: [
+                    AnimatedBuilder(
+                      animation: _pulseController,
+                      builder: (context, _) {
+                        return CustomPaint(
+                          painter: _MeshMapPainter(
+                            myLocation: myLoc!,
+                            peers: peers,
+                            pulseValue: _pulseController.value,
+                            heading: _heading,
+                            myTriageStatus: service.myTriageStatus,
+                          ),
+                          child: const SizedBox.expand(),
+                        );
+                      },
+                    ),
+                    // Triage legend (bottom-right)
+                    Positioned(
+                      bottom: 72,
+                      right: 12,
+                      child: _TriageLegend(),
+                    ),
+                  ],
                 ),
           floatingActionButton: FloatingActionButton.small(
             backgroundColor: Colors.orange,
@@ -211,6 +253,7 @@ class _MeshMapPainter extends CustomPainter {
   final List<LocationUpdate> peers;
   final double pulseValue;
   final double heading; // degrees clockwise from north
+  final TriageStatus myTriageStatus;
 
   // Visible radius in degrees (~500 m each side)
   static const double _viewRange = 0.005;
@@ -220,6 +263,7 @@ class _MeshMapPainter extends CustomPainter {
     required this.peers,
     required this.pulseValue,
     required this.heading,
+    required this.myTriageStatus,
   });
 
   Offset _toCanvas(Size size, double lat, double lon) {
@@ -329,18 +373,20 @@ class _MeshMapPainter extends CustomPainter {
     )..layout();
     scaleTp.paint(canvas, Offset(barX + barPx / 2 - scaleTp.width / 2, barY + 6));
 
-    // Peer dots
+    // Peer dots — coloured by triage status
     for (final peer in peers) {
       final pos = _toCanvas(size, peer.latitude, peer.longitude);
-      final pulseR = peer.isSOS ? 10.0 + pulseValue * 18.0 : 0.0;
+      final isAlert = peer.triageStatus == TriageStatus.sos || peer.isSOS;
+      final dotColor = peer.triageStatus.color;
+      final pulseR = isAlert ? 10.0 + pulseValue * 18.0 : 0.0;
       _drawDot(
         canvas: canvas,
         center: pos,
-        color: peer.isSOS ? Colors.red : Colors.orange,
+        color: dotColor,
         radius: 8,
         label: peer.userName,
         pulseRadius: pulseR,
-        pulseColor: Colors.red,
+        pulseColor: TriageStatus.sos.color,
       );
     }
 
@@ -361,7 +407,8 @@ class _MeshMapPainter extends CustomPainter {
       old.pulseValue != pulseValue ||
       old.peers.length != peers.length ||
       old.myLocation.latitude != myLocation.latitude ||
-      old.heading != heading;
+      old.heading != heading ||
+      old.myTriageStatus != myTriageStatus;
 
   /// Draws a teardrop/chevron arrow centred at [center], pointing toward
   /// [headingDeg] degrees clockwise from north (up on the map).
@@ -496,4 +543,53 @@ class _MeshMapPainter extends CustomPainter {
       canvas,
       Offset(center.dx - nTp.width / 2, center.dy - 38),
     );
-  }}
+  }
+}
+
+// ─── Triage colour legend ───────────────────────────────────────────────────
+
+class _TriageLegend extends StatelessWidget {
+  const _TriageLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.65),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: TriageStatus.values.map((s) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: s.color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  s.label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}

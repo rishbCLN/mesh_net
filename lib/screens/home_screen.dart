@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 import '../services/storage_service.dart';
 import '../models/message.dart';
 import '../widgets/device_tile.dart';
+import '../widgets/triage_status_picker.dart';
 import 'chat_screen.dart';
 import 'map_screen.dart';
 import 'sos_screen.dart';
+import 'topology_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -275,6 +278,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ),
                         ),
+                      // ── My Triage Status ──────────────────────────────
+                      _MyStatusCard(service: nearbyService),
+                      const SizedBox(height: 16),
+
                       // Nearby Devices Section
                       Card(
                         child: Padding(
@@ -302,10 +309,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                   ),
                                 )
                               else
-                                ...nearbyService.connectedDevices
-                                    .map((device) => DeviceTile(device: device)),
-                              ...nearbyService.discoveredDevices
-                                  .map((device) => DeviceTile(device: device)),
+                                ...nearbyService.connectedDevices.map(
+                                  (device) => DeviceTile(
+                                    device: device,
+                                    triageStatus: nearbyService
+                                        .peerLocations[device.name]
+                                        ?.triageStatus,
+                                  ),
+                                ),
+                              ...nearbyService.discoveredDevices.map(
+                                (device) => DeviceTile(
+                                  device: device,
+                                  triageStatus: nearbyService
+                                      .peerLocations[device.name]
+                                      ?.triageStatus,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -406,6 +425,30 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      // Network topology button (full width)
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.device_hub_rounded),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const TopologyScreen(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 52),
+                          backgroundColor: const Color(0xFF10102A),
+                          foregroundColor: Colors.cyanAccent,
+                          side: const BorderSide(color: Colors.cyanAccent, width: 1),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        label: const Text(
+                          'Mesh Network',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ),
                       const SizedBox(height: 80), // space so content isn't hidden behind SOS bar
                     ],
                   ),
@@ -463,6 +506,88 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         );
       },
+    );
+  }
+}
+
+// ─── My Status card ────────────────────────────────────────────────────────────
+
+class _MyStatusCard extends StatelessWidget {
+  final NearbyService service;
+
+  const _MyStatusCard({required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    final status = service.myTriageStatus;
+    final color = status.color;
+
+    return GestureDetector(
+      onTap: () => showTriagePicker(context),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.6), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.5),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Icon(status.icon, color: status.onColor, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'My Status',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    status.label,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  Text(
+                    status.description,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              children: [
+                Icon(Icons.edit_rounded, size: 16, color: color.withOpacity(0.7)),
+                const SizedBox(height: 2),
+                Text(
+                  'Change',
+                  style: TextStyle(fontSize: 10, color: color.withOpacity(0.7)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

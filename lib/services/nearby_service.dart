@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../models/device.dart';
 import '../models/location_update.dart';
 import '../models/message.dart';
+import '../models/triage_status.dart';
 import '../core/constants.dart';
 import 'storage_service.dart';
 
@@ -29,10 +30,48 @@ class NearbyService extends ChangeNotifier {
   List<Device> discoveredDevices = [];
   List<Device> connectedDevices = [];
 
+  // Relay event log (for topology visualizer)
+  final List<RelayEvent> relayEvents = [];
+  static const _kRelayEventTTL = Duration(seconds: 4);
+
+  int _totalMessagesRouted = 0;
+  int get totalMessagesRouted => _totalMessagesRouted;
+
   // Location tracking
   LocationUpdate? myLocation;
   final Map<String, LocationUpdate> peerLocations = {};
   bool _isFetchingLocation = false;
+
+  // Triage
+  TriageStatus myTriageStatus = TriageStatus.ok;
+
+  /// Update this device's triage status and rebroadcast location immediately.
+  Future<void> setTriageStatus(TriageStatus status) async {
+    myTriageStatus = status;
+    notifyListeners();
+    if (myLocation != null) {
+      // Rebuild myLocation with new status and push to all peers
+      myLocation = LocationUpdate(
+        userId: userName,
+        userName: userName,
+        latitude: myLocation!.latitude,
+        longitude: myLocation!.longitude,
+        timestamp: DateTime.now(),
+        isSOS: status == TriageStatus.sos,
+        triageStatus: status,
+      );
+      final payload = Constants.LOC_PREFIX + myLocation!.toJson();
+      final bytes = Uint8List.fromList(utf8.encode(payload));
+      for (final device in connectedDevices) {
+        await _nearby.sendBytesPayload(device.id, bytes);
+      }
+    } else {
+      // No GPS fix yet — just broadcast without coords by triggering a fresh fix
+      try {
+        await startLocationBroadcast();
+      } catch (_) {}
+    }
+  }
 
   static const _kTimeout = Duration(seconds: 5);
   static const _kMaxRetries = 2;
@@ -225,12 +264,33 @@ class NearbyService extends ChangeNotifier {
         final forwarded = message.copyWith(hopCount: message.hopCount + 1);
         final payloadBytes = Uint8List.fromList(utf8.encode(forwarded.toJson()));
 
+        // Track relay for topology visualizer
+        _totalMessagesRouted++;
+        final relayTargets = <String>[];
+
         for (var device in connectedDevices) {
           if (device.id == endpointId) {
             continue; // do not echo back to sender
           }
           await _nearby.sendBytesPayload(device.id, payloadBytes);
+          relayTargets.add(device.id);
         }
+
+        // Record one relay event per forwarded-to device
+        final now = DateTime.now();
+        // Prune stale events first
+        relayEvents.removeWhere(
+          (e) => now.difference(e.timestamp) > _kRelayEventTTL,
+        );
+        for (final targetId in relayTargets) {
+          relayEvents.add(RelayEvent(
+            fromId: endpointId,
+            toId: targetId,
+            timestamp: now,
+            isSOS: message.isSOS,
+          ));
+        }
+        if (relayTargets.isNotEmpty) notifyListeners();
       }
     } catch (e) {
       debugPrint('Error parsing message: $e');
@@ -370,6 +430,8 @@ class NearbyService extends ChangeNotifier {
         latitude: position.latitude,
         longitude: position.longitude,
         timestamp: DateTime.now(),
+        isSOS: myTriageStatus == TriageStatus.sos,
+        triageStatus: myTriageStatus,
       );
       notifyListeners();
 
@@ -403,4 +465,20 @@ class NearbyService extends ChangeNotifier {
       }
     }
   }
+}
+
+// ─── Relay event (for topology visualizer) ────────────────────────────────────
+
+class RelayEvent {
+  final String fromId;
+  final String toId;
+  final DateTime timestamp;
+  final bool isSOS;
+
+  const RelayEvent({
+    required this.fromId,
+    required this.toId,
+    required this.timestamp,
+    this.isSOS = false,
+  });
 }

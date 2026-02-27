@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'triage_status.dart';
 
 class LocationUpdate {
   final String userId;
@@ -7,6 +8,7 @@ class LocationUpdate {
   final double longitude;
   final DateTime timestamp;
   final bool isSOS;
+  final TriageStatus triageStatus;
 
   LocationUpdate({
     required this.userId,
@@ -15,6 +17,7 @@ class LocationUpdate {
     required this.longitude,
     required this.timestamp,
     this.isSOS = false,
+    this.triageStatus = TriageStatus.ok,
   });
 
   String toJson() {
@@ -25,6 +28,7 @@ class LocationUpdate {
       'longitude': longitude,
       'timestamp': timestamp.toIso8601String(),
       'isSOS': isSOS,
+      'triageStatus': triageStatus.jsonValue,
     });
   }
 
@@ -38,6 +42,7 @@ class LocationUpdate {
       longitude: (data['longitude'] as num).toDouble(),
       timestamp: DateTime.parse(data['timestamp'] as String),
       isSOS: (data['isSOS'] as bool?) ?? false,
+      triageStatus: TriageStatusX.fromJson(data['triageStatus'] as String?),
     );
   }
 }
