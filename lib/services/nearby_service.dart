@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -8,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../models/device.dart';
 import '../models/location_update.dart';
 import '../models/message.dart';
+import '../models/roll_call.dart';
 import '../models/triage_status.dart';
 import '../core/constants.dart';
 import 'storage_service.dart';
@@ -44,6 +46,115 @@ class NearbyService extends ChangeNotifier {
 
   // Triage
   TriageStatus myTriageStatus = TriageStatus.ok;
+
+  // ── Roll Call ────────────────────────────────────────────────────────────
+  RollCallSession? activeRollCall;     // non-null only on the coordinator
+  IncomingRollCall? incomingRollCall;  // non-null on a responder
+
+  final Set<String> _seenRcIds  = {}; // dedup relay: 'rc:{id}:{round}'
+  final Set<String> _seenRcrIds = {}; // dedup relay: 'rcr:{rcId}:{from}'
+
+  Timer? _rollCallDeadlineTimer;
+  Timer? _rollCallRepeatTimer;
+
+  static const _kRollCallDeadline = 60; // seconds per round
+  static const _kRollCallRepeat   = 120; // seconds between auto-repeats
+
+  /// Start a roll call as coordinator.
+  Future<void> startRollCall() async {
+    stopRollCall(); // cancel any previous
+    final id = _uuid.v4();
+    final deadline = DateTime.now().add(const Duration(seconds: _kRollCallDeadline));
+    final entries = <String, RollCallEntry>{};
+    for (final d in connectedDevices) {
+      entries[d.name] = RollCallEntry(name: d.name);
+    }
+    activeRollCall = RollCallSession(
+      id: id,
+      coordinatorName: userName,
+      startedAt: DateTime.now(),
+      deadline: deadline,
+      entries: entries,
+    );
+    notifyListeners();
+    await _broadcastRollCall(activeRollCall!);
+    _scheduleRollCallDeadline();
+  }
+
+  /// Responder: reply 'safe' or 'needHelp' to a received roll call.
+  Future<void> respondToRollCall(String status) async {
+    final rc = incomingRollCall;
+    if (rc == null) return;
+    incomingRollCall = null;
+    notifyListeners();
+    final reply = RollCallReplyPacket(
+      rollCallId: rc.id,
+      responderName: userName,
+      status: status,
+    );
+    final bytes = Uint8List.fromList(utf8.encode(Constants.RCR_PREFIX + reply.toWire()));
+    for (final d in connectedDevices) {
+      await _nearby.sendBytesPayload(d.id, bytes);
+    }
+  }
+
+  /// Coordinator: stop and clear the roll call.
+  void stopRollCall() {
+    _rollCallDeadlineTimer?.cancel();
+    _rollCallRepeatTimer?.cancel();
+    activeRollCall = null;
+    notifyListeners();
+  }
+
+  Future<void> _broadcastRollCall(RollCallSession session) async {
+    final packet = RollCallPacket(
+      id: session.id,
+      coordinatorName: session.coordinatorName,
+      round: session.round,
+      deadlineSecs: _kRollCallDeadline,
+    );
+    final bytes = Uint8List.fromList(utf8.encode(Constants.RC_PREFIX + packet.toWire()));
+    for (final d in connectedDevices) {
+      await _nearby.sendBytesPayload(d.id, bytes);
+    }
+  }
+
+  void _scheduleRollCallDeadline() {
+    _rollCallDeadlineTimer?.cancel();
+    _rollCallDeadlineTimer = Timer(const Duration(seconds: _kRollCallDeadline), () {
+      final rc = activeRollCall;
+      if (rc == null) return;
+      // Mark all still-pending entries as UNKNOWN
+      for (final e in rc.entries.values) {
+        if (e.status == RollCallEntryStatus.pending) {
+          e.status = RollCallEntryStatus.unknown;
+        }
+      }
+      notifyListeners();
+      // Schedule auto-repeat
+      _rollCallRepeatTimer?.cancel();
+      _rollCallRepeatTimer = Timer(const Duration(seconds: _kRollCallRepeat), () {
+        final cur = activeRollCall;
+        if (cur == null) return;
+        // New round: reset all to pending
+        cur.round++;
+        final deadline = DateTime.now().add(const Duration(seconds: _kRollCallDeadline));
+        activeRollCall = RollCallSession(
+          id: cur.id,
+          coordinatorName: cur.coordinatorName,
+          startedAt: cur.startedAt,
+          deadline: deadline,
+          round: cur.round,
+          entries: {
+            for (final d in connectedDevices) d.name: RollCallEntry(name: d.name),
+          },
+        );
+        notifyListeners();
+        _broadcastRollCall(activeRollCall!);
+        _scheduleRollCallDeadline();
+      });
+    });
+  }
 
   /// Update this device's triage status and rebroadcast location immediately.
   Future<void> setTriageStatus(TriageStatus status) async {
@@ -234,6 +345,18 @@ class NearbyService extends ChangeNotifier {
 
     final String data = utf8.decode(bytes);
     debugPrint('Received message: $data');
+
+    // Handle roll call broadcast
+    if (data.startsWith(Constants.RC_PREFIX)) {
+      _handleRollCallPacket(endpointId, data.substring(Constants.RC_PREFIX.length));
+      return;
+    }
+
+    // Handle roll call reply
+    if (data.startsWith(Constants.RCR_PREFIX)) {
+      _handleRollCallReplyPacket(endpointId, data.substring(Constants.RCR_PREFIX.length));
+      return;
+    }
 
     // Handle location update payloads
     if (data.startsWith(Constants.LOC_PREFIX)) {
@@ -462,6 +585,78 @@ class NearbyService extends ChangeNotifier {
       for (var i = 0; i < 100 && _messageIdOrder.isNotEmpty; i++) {
         final oldest = _messageIdOrder.removeFirst();
         _seenMessageIds.remove(oldest);
+      }
+    }
+  }
+
+  // ── Roll-call packet handlers ─────────────────────────────────────────────
+
+  void _handleRollCallPacket(String fromEndpointId, String wire) async {
+    RollCallPacket pkt;
+    try { pkt = RollCallPacket.fromWire(wire); } catch (_) { return; }
+
+    final dedupKey = 'rc:${pkt.id}:${pkt.round}';
+    if (_seenRcIds.contains(dedupKey)) return;
+    _seenRcIds.add(dedupKey);
+
+    // Am I the coordinator? Then just record — no prompt needed.
+    if (activeRollCall?.id == pkt.id) return;
+
+    // Show prompt to user (only on first receive, not relayed ones from myself)
+    if (incomingRollCall?.id != pkt.id) {
+      incomingRollCall = IncomingRollCall(
+        id: pkt.id,
+        coordinatorName: pkt.coordinatorName,
+        receivedAt: DateTime.now(),
+        deadlineSecs: pkt.deadlineSecs,
+      );
+      notifyListeners();
+      // Auto-expire the prompt when the deadline passes
+      Timer(Duration(seconds: pkt.deadlineSecs), () {
+        if (incomingRollCall?.id == pkt.id) {
+          incomingRollCall = null;
+          notifyListeners();
+        }
+      });
+    }
+
+    // Relay to other peers (hop-limited)
+    if (pkt.hops < RollCallPacket.maxHops) {
+      final relayed = Uint8List.fromList(
+          utf8.encode(Constants.RC_PREFIX + pkt.withNextHop().toWire()));
+      for (final d in connectedDevices) {
+        if (d.id == fromEndpointId) continue;
+        await _nearby.sendBytesPayload(d.id, relayed);
+      }
+    }
+  }
+
+  void _handleRollCallReplyPacket(String fromEndpointId, String wire) async {
+    RollCallReplyPacket pkt;
+    try { pkt = RollCallReplyPacket.fromWire(wire); } catch (_) { return; }
+
+    final dedupKey = 'rcr:${pkt.rollCallId}:${pkt.responderName}';
+    if (_seenRcrIds.contains(dedupKey)) return;
+    _seenRcrIds.add(dedupKey);
+
+    // If I'm the coordinator for this roll call, update the roster.
+    final rc = activeRollCall;
+    if (rc != null && rc.id == pkt.rollCallId) {
+      final entry = rc.entries[pkt.responderName];
+      if (entry != null && entry.status == RollCallEntryStatus.pending) {
+        entry.status = RollCallEntryStatusX.fromJson(pkt.status);
+        entry.respondedAt = DateTime.now();
+        notifyListeners();
+      }
+    }
+
+    // Relay toward coordinator (hop-limited)
+    if (pkt.hops < RollCallReplyPacket.maxHops) {
+      final relayed = Uint8List.fromList(
+          utf8.encode(Constants.RCR_PREFIX + pkt.withNextHop().toWire()));
+      for (final d in connectedDevices) {
+        if (d.id == fromEndpointId) continue;
+        await _nearby.sendBytesPayload(d.id, relayed);
       }
     }
   }

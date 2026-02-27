@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/triage_status.dart';
+import '../models/roll_call.dart';
 import '../services/nearby_service.dart';
 import '../services/storage_service.dart';
 import '../models/message.dart';
@@ -10,6 +12,7 @@ import '../widgets/device_tile.dart';
 import '../widgets/triage_status_picker.dart';
 import 'chat_screen.dart';
 import 'map_screen.dart';
+import 'roll_call_screen.dart';
 import 'sos_screen.dart';
 import 'topology_screen.dart';
 
@@ -216,8 +219,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
             ],
           ),
-          body: !_isInitialized
-              ? const Center(
+          body: Stack(
+            children: [
+              if (!_isInitialized)
+                const Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -228,7 +233,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ],
                   ),
                 )
-              : RefreshIndicator(
+              else
+                RefreshIndicator(
                   onRefresh: _loadRecentMessages,
                   child: ListView(
                     padding: const EdgeInsets.all(16),
@@ -449,10 +455,48 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      // Roll Call button
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.how_to_reg_rounded),
+                        onPressed: nearbyService.connectedDevices.isEmpty
+                            ? null
+                            : () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const RollCallScreen(),
+                                  ),
+                                );
+                              },
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 52),
+                          backgroundColor: const Color(0xFF1A0D2E),
+                          foregroundColor: Colors.deepPurpleAccent,
+                          disabledForegroundColor: Colors.deepPurpleAccent.withOpacity(0.35),
+                          side: const BorderSide(color: Colors.deepPurpleAccent, width: 1),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        label: Text(
+                          nearbyService.connectedDevices.isEmpty
+                              ? 'Roll Call (connect devices first)'
+                              : 'Roll Call  •  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ),
                       const SizedBox(height: 80), // space so content isn't hidden behind SOS bar
                     ],
                   ),
                 ),
+              // ── Incoming roll call overlay ────────────────────────────────────────
+              if (nearbyService.incomingRollCall != null)
+                _RollCallResponderOverlay(
+                  rollCall: nearbyService.incomingRollCall!,
+                  service: nearbyService,
+                ),
+            ],
+          ),
           bottomNavigationBar: SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -588,6 +632,250 @@ class _MyStatusCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Incoming roll call full-screen overlay ──────────────────────────────────
+
+class _RollCallResponderOverlay extends StatefulWidget {
+  final IncomingRollCall rollCall;
+  final NearbyService service;
+
+  const _RollCallResponderOverlay({
+    required this.rollCall,
+    required this.service,
+  });
+
+  @override
+  State<_RollCallResponderOverlay> createState() =>
+      _RollCallResponderOverlayState();
+}
+
+class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+  Timer? _clock;
+  int _secsLeft = 60;
+  bool _responding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
+
+    _secsLeft = widget.rollCall.deadlineSecs;
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _secsLeft = (_secsLeft - 1).clamp(0, 999));
+    });
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    _clock?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _respond(String status) async {
+    if (_responding) return;
+    setState(() => _responding = true);
+    await widget.service.respondToRollCall(status);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (context, _) {
+        final glow = _pulse.value;
+        return Material(
+          color: Colors.black.withOpacity(0.88),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Pulsing siren icon
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.deepPurple.withOpacity(0.2 + glow * 0.2),
+                      border: Border.all(
+                        color: Colors.deepPurpleAccent
+                            .withOpacity(0.6 + glow * 0.4),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.how_to_reg_rounded,
+                      color: Colors.deepPurpleAccent,
+                      size: 36,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Title
+                  const Text(
+                    'ROLL CALL',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 3,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${widget.rollCall.coordinatorName} is checking everyone\'s status',
+                    textAlign: TextAlign.center,
+                    style:
+                        const TextStyle(color: Colors.white60, fontSize: 14),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Countdown
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.timer_rounded,
+                            color: Colors.white38, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          '$_secsLeft seconds to respond',
+                          style: TextStyle(
+                            color: _secsLeft < 15
+                                ? Colors.redAccent
+                                : Colors.white60,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+
+                  // Response buttons
+                  if (_responding)
+                    const CircularProgressIndicator(
+                        color: Colors.deepPurpleAccent)
+                  else
+                    Row(
+                      children: [
+                        // I'M SAFE
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _respond('safe'),
+                            child: Container(
+                              height: 90,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1B5E20),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                    color: Colors.greenAccent
+                                        .withOpacity(0.6),
+                                    width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.green
+                                        .withOpacity(0.3 + glow * 0.2),
+                                    blurRadius: 16 + glow * 12,
+                                  ),
+                                ],
+                              ),
+                              child: const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle_rounded,
+                                      color: Colors.greenAccent, size: 32),
+                                  SizedBox(height: 6),
+                                  Text(
+                                    "I'M SAFE",
+                                    style: TextStyle(
+                                      color: Colors.greenAccent,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        // NEED HELP
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _respond('needHelp'),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              height: 90,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF7F0000),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                    color:
+                                        Colors.redAccent.withOpacity(0.6),
+                                    width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.red
+                                        .withOpacity(0.3 + glow * 0.3),
+                                    blurRadius: 16 + glow * 16,
+                                  ),
+                                ],
+                              ),
+                              child: const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.warning_rounded,
+                                      color: Colors.redAccent, size: 32),
+                                  SizedBox(height: 6),
+                                  Text(
+                                    'NEED HELP',
+                                    style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                  const SizedBox(height: 20),
+                  Text(
+                    'No response = flagged Unknown after timeout',
+                    style:
+                        const TextStyle(color: Colors.white24, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
