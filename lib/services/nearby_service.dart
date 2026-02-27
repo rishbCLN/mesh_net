@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -12,48 +13,99 @@ class NearbyService extends ChangeNotifier {
   final Nearby _nearby = Nearby();
   final StorageService _storage = StorageService();
   final Uuid _uuid = const Uuid();
+  final Set<String> _seenMessageIds = {};
+  final Queue<String> _messageIdOrder = Queue<String>();
 
   String userName = '';
   String get myEndpointId => userName; // Use userName as endpoint ID
-  
+
+  /// Non-null when advertising/discovery could not start.
+  String? meshError;
+  bool _isRunning = false;
+  bool get isRunning => _isRunning;
+
   List<Device> discoveredDevices = [];
   List<Device> connectedDevices = [];
 
+  static const _kTimeout = Duration(seconds: 5);
+  static const _kMaxRetries = 2;
+
   Future<void> init(String name) async {
     userName = name;
-    
-    // Start advertising and discovery simultaneously
-    await _startAdvertising();
-    await _startDiscovery();
+    meshError = null;
+    _isRunning = false;
+    notifyListeners();
+
+    // Stop any previous session before (re)starting
+    try {
+      await _nearby.stopAdvertising();
+      await _nearby.stopDiscovery();
+    } catch (_) {}
+
+    final advOk = await _startAdvertising();
+    final disOk = await _startDiscovery();
+
+    _isRunning = advOk || disOk;
+
+    if (!advOk && !disOk) {
+      meshError = 'Could not start mesh (radio error). Tap Retry to try again.';
+    } else if (!advOk) {
+      meshError = 'Advertising failed — others may not find this device.';
+    } else if (!disOk) {
+      meshError = 'Discovery failed — this device may not find others.';
+    }
+    notifyListeners();
   }
 
-  Future<void> _startAdvertising() async {
-    try {
-      await _nearby.startAdvertising(
-        userName,
-        Strategy.P2P_CLUSTER,
-        onConnectionInitiated: _onConnectionInitiated,
-        onConnectionResult: _onConnectionResult,
-        onDisconnected: _onDisconnected,
-        serviceId: Constants.SERVICE_ID,
-      );
-    } catch (e) {
-      debugPrint('Error starting advertising: $e');
+  /// Returns true on success, false on any error.
+  Future<bool> _startAdvertising() async {
+    for (var attempt = 1; attempt <= _kMaxRetries; attempt++) {
+      try {
+        await _nearby
+            .startAdvertising(
+              userName,
+              Strategy.P2P_CLUSTER,
+              onConnectionInitiated: _onConnectionInitiated,
+              onConnectionResult: _onConnectionResult,
+              onDisconnected: _onDisconnected,
+              serviceId: Constants.SERVICE_ID,
+            )
+            .timeout(_kTimeout);
+        debugPrint('Advertising started (attempt $attempt)');
+        return true;
+      } catch (e) {
+        debugPrint('Error starting advertising (attempt $attempt): $e');
+        if (attempt < _kMaxRetries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+        }
+      }
     }
+    return false;
   }
 
-  Future<void> _startDiscovery() async {
-    try {
-      await _nearby.startDiscovery(
-        userName,
-        Strategy.P2P_CLUSTER,
-        onEndpointFound: _onEndpointFound,
-        onEndpointLost: _onEndpointLost,
-        serviceId: Constants.SERVICE_ID,
-      );
-    } catch (e) {
-      debugPrint('Error starting discovery: $e');
+  /// Returns true on success, false on any error.
+  Future<bool> _startDiscovery() async {
+    for (var attempt = 1; attempt <= _kMaxRetries; attempt++) {
+      try {
+        await _nearby
+            .startDiscovery(
+              userName,
+              Strategy.P2P_CLUSTER,
+              onEndpointFound: _onEndpointFound,
+              onEndpointLost: _onEndpointLost,
+              serviceId: Constants.SERVICE_ID,
+            )
+            .timeout(_kTimeout);
+        debugPrint('Discovery started (attempt $attempt)');
+        return true;
+      } catch (e) {
+        debugPrint('Error starting discovery (attempt $attempt): $e');
+        if (attempt < _kMaxRetries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+        }
+      }
     }
+    return false;
   }
 
   void _onEndpointFound(String endpointId, String endpointName, String serviceId) {
@@ -124,31 +176,44 @@ class NearbyService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _onPayloadReceived(String endpointId, Payload payload) {
-    if (payload.type == PayloadType.BYTES) {
-      final bytes = payload.bytes;
-      if (bytes != null) {
-        final String data = String.fromCharCodes(bytes);
-        debugPrint('Received message: $data');
-        
-        try {
-          final Map<String, dynamic> json = jsonDecode(data);
-          final message = Message(
-            id: json['id'] as String,
-            senderId: json['senderId'] as String,
-            senderName: json['senderName'] as String,
-            content: json['content'] as String,
-            timestamp: DateTime.parse(json['timestamp'] as String),
-            isSOS: json['isSOS'] as bool,
-          );
-          
-          // Save to database
-          _storage.insertMessage(message);
-          notifyListeners();
-        } catch (e) {
-          debugPrint('Error parsing message: $e');
+  void _onPayloadReceived(String endpointId, Payload payload) async {
+    if (payload.type != PayloadType.BYTES) {
+      return;
+    }
+
+    final bytes = payload.bytes;
+    if (bytes == null) {
+      return;
+    }
+
+    final String data = utf8.decode(bytes);
+    debugPrint('Received message: $data');
+
+    try {
+      final message = Message.fromJson(data);
+
+      if (_seenMessageIds.contains(message.id)) {
+        return;
+      }
+
+      _rememberMessageId(message.id);
+
+      await _storage.insertMessage(message);
+      notifyListeners();
+
+      if (message.hopCount < message.maxHops) {
+        final forwarded = message.copyWith(hopCount: message.hopCount + 1);
+        final payloadBytes = Uint8List.fromList(utf8.encode(forwarded.toJson()));
+
+        for (var device in connectedDevices) {
+          if (device.id == endpointId) {
+            continue; // do not echo back to sender
+          }
+          await _nearby.sendBytesPayload(device.id, payloadBytes);
         }
       }
+    } catch (e) {
+      debugPrint('Error parsing message: $e');
     }
   }
 
@@ -160,22 +225,19 @@ class NearbyService extends ChangeNotifier {
       content: content,
       timestamp: DateTime.now(),
       isSOS: false,
+      hopCount: 0,
+      maxHops: 5,
     );
+
+    _rememberMessageId(message.id);
 
     // Save own message to database
     await _storage.insertMessage(message);
 
     // Send to endpoint
-    final json = jsonEncode({
-      'id': message.id,
-      'senderId': message.senderId,
-      'senderName': message.senderName,
-      'content': message.content,
-      'timestamp': message.timestamp.toIso8601String(),
-      'isSOS': message.isSOS,
-    });
+    final bytes = Uint8List.fromList(utf8.encode(message.toJson()));
 
-    await _nearby.sendBytesPayload(endpointId, Uint8List.fromList(json.codeUnits));
+    await _nearby.sendBytesPayload(endpointId, bytes);
     notifyListeners();
   }
 
@@ -187,22 +249,17 @@ class NearbyService extends ChangeNotifier {
       content: content,
       timestamp: DateTime.now(),
       isSOS: false,
+      hopCount: 0,
+      maxHops: 5,
     );
+
+    _rememberMessageId(message.id);
 
     // Save own message to database
     await _storage.insertMessage(message);
 
     // Broadcast to all connected devices
-    final json = jsonEncode({
-      'id': message.id,
-      'senderId': message.senderId,
-      'senderName': message.senderName,
-      'content': message.content,
-      'timestamp': message.timestamp.toIso8601String(),
-      'isSOS': message.isSOS,
-    });
-
-    final bytes = Uint8List.fromList(json.codeUnits);
+    final bytes = Uint8List.fromList(utf8.encode(message.toJson()));
     for (var device in connectedDevices) {
       await _nearby.sendBytesPayload(device.id, bytes);
     }
@@ -220,22 +277,17 @@ class NearbyService extends ChangeNotifier {
       content: sosContent,
       timestamp: DateTime.now(),
       isSOS: true,
+      hopCount: 0,
+      maxHops: 10,
     );
+
+    _rememberMessageId(message.id);
 
     // Save own SOS to database
     await _storage.insertMessage(message);
 
     // Broadcast to all connected devices
-    final json = jsonEncode({
-      'id': message.id,
-      'senderId': message.senderId,
-      'senderName': message.senderName,
-      'content': message.content,
-      'timestamp': message.timestamp.toIso8601String(),
-      'isSOS': true,
-    });
-
-    final bytes = Uint8List.fromList(json.codeUnits);
+    final bytes = Uint8List.fromList(utf8.encode(message.toJson()));
     for (var device in connectedDevices) {
       await _nearby.sendBytesPayload(device.id, bytes);
     }
@@ -244,12 +296,30 @@ class NearbyService extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
-    await _nearby.stopAdvertising();
-    await _nearby.stopDiscovery();
-    await _nearby.stopAllEndpoints();
-    
+    try { await _nearby.stopAdvertising(); } catch (_) {}
+    try { await _nearby.stopDiscovery(); } catch (_) {}
+    try { await _nearby.stopAllEndpoints(); } catch (_) {}
+
+    _isRunning = false;
+    meshError = null;
     discoveredDevices.clear();
     connectedDevices.clear();
     notifyListeners();
+  }
+
+  void _rememberMessageId(String id) {
+    if (_seenMessageIds.contains(id)) {
+      return;
+    }
+
+    _seenMessageIds.add(id);
+    _messageIdOrder.addLast(id);
+
+    if (_messageIdOrder.length > 500) {
+      for (var i = 0; i < 100 && _messageIdOrder.isNotEmpty; i++) {
+        final oldest = _messageIdOrder.removeFirst();
+        _seenMessageIds.remove(oldest);
+      }
+    }
   }
 }

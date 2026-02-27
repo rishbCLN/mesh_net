@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/nearby_service.dart';
@@ -19,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final StorageService _storage = StorageService();
   List<Message> recentMessages = [];
   bool _isInitialized = false;
+  bool _meshRetrying = false;
   late AnimationController _pulseController;
 
   @override
@@ -39,6 +41,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _initializeApp() async {
+    // Request all required runtime permissions before starting mesh services
+    await _requestNearbyPermissions();
+
     final prefs = await SharedPreferences.getInstance();
     String? userName = prefs.getString('userName');
 
@@ -53,16 +58,73 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     }
 
-    // Initialize nearby service
+    // Fire mesh init in the background — UI should not wait for it
     if (mounted) {
       final nearbyService = Provider.of<NearbyService>(context, listen: false);
-      await nearbyService.init(userName);
+      // Do NOT await — set initialized immediately so the screen loads
+      nearbyService.init(userName).catchError((e) {
+        debugPrint('NearbyService init error: $e');
+      });
       setState(() {
         _isInitialized = true;
       });
     }
 
     _loadRecentMessages();
+  }
+
+  Future<void> _retryMesh() async {
+    setState(() => _meshRetrying = true);
+    final nearbyService = Provider.of<NearbyService>(context, listen: false);
+    try {
+      await nearbyService.init(nearbyService.userName);
+    } catch (e) {
+      debugPrint('Mesh retry error: $e');
+    } finally {
+      if (mounted) setState(() => _meshRetrying = false);
+    }
+  }
+
+  Future<void> _requestNearbyPermissions() async {
+    final permissions = [
+      Permission.location,
+      Permission.nearbyWifiDevices,
+    ];
+
+    final statuses = await permissions.request();
+
+    final anyPermanentlyDenied = statuses.values
+        .any((s) => s.isPermanentlyDenied);
+    final anyDenied = statuses.values
+        .any((s) => s.isDenied || s.isPermanentlyDenied);
+
+    if (anyDenied && mounted) {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Permissions Required'),
+          content: const Text(
+            'MeshAlert needs Location and Nearby Wi-Fi permissions to discover '
+            'and communicate with devices around you via WiFi Direct.\n\n'
+            'Without these permissions the mesh network will not work.',
+          ),
+          actions: [
+            if (anyPermanentlyDenied)
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  openAppSettings();
+                },
+                child: const Text('Open Settings'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(anyPermanentlyDenied ? 'Cancel' : 'OK'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Future<String?> _showNameDialog() async {
@@ -150,12 +212,67 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ],
           ),
           body: !_isInitialized
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('Starting mesh services…',
+                          style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                )
               : RefreshIndicator(
                   onRefresh: _loadRecentMessages,
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
+                      // Mesh error / retry banner
+                      if (nearbyService.meshError != null)
+                        Card(
+                          color: Colors.orange.shade100,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.warning_amber_rounded,
+                                        color: Colors.orange),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Mesh Unavailable',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(nearbyService.meshError!,
+                                    style: const TextStyle(fontSize: 13)),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: _meshRetrying
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : TextButton.icon(
+                                          onPressed: _retryMesh,
+                                          icon: const Icon(Icons.refresh),
+                                          label: const Text('Retry'),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       // Nearby Devices Section
                       Card(
                         child: Padding(

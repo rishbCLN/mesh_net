@@ -20,7 +20,7 @@ class StorageService {
     String path = join(await getDatabasesPath(), Constants.DB_NAME);
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE ${Constants.TABLE_MESSAGES} (
@@ -29,9 +29,17 @@ class StorageService {
             senderName TEXT NOT NULL,
             content TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
-            isSOS INTEGER NOT NULL
+            isSOS INTEGER NOT NULL,
+            hopCount INTEGER NOT NULL DEFAULT 0,
+            maxHops INTEGER NOT NULL DEFAULT 5
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN hopCount INTEGER NOT NULL DEFAULT 0');
+          await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN maxHops INTEGER NOT NULL DEFAULT 5');
+        }
       },
     );
   }
