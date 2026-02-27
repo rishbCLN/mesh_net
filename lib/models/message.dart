@@ -9,6 +9,7 @@ class Message {
   final bool isSOS;
   final int hopCount;
   final int maxHops;
+  final String originId;
 
   Message({
     required this.id,
@@ -19,8 +20,11 @@ class Message {
     required this.isSOS,
     int hopCount = 0,
     int? maxHops,
+    String? originId,
   })  : hopCount = hopCount,
-        maxHops = maxHops ?? (isSOS ? 10 : 5);
+        // SOS messages always have maxHops forced to 10
+        maxHops = isSOS ? 10 : (maxHops ?? 5),
+        originId = originId ?? id;
 
   Message copyWith({
     String? id,
@@ -31,6 +35,7 @@ class Message {
     bool? isSOS,
     int? hopCount,
     int? maxHops,
+    String? originId,
   }) {
     final resolvedIsSOS = isSOS ?? this.isSOS;
     return Message(
@@ -42,6 +47,7 @@ class Message {
       isSOS: resolvedIsSOS,
       hopCount: hopCount ?? this.hopCount,
       maxHops: maxHops ?? this.maxHops,
+      originId: originId ?? this.originId,
     );
   }
 
@@ -55,6 +61,7 @@ class Message {
       'isSOS': isSOS ? 1 : 0,
       'hopCount': hopCount,
       'maxHops': maxHops,
+      'originId': originId,
     };
   }
 
@@ -62,9 +69,10 @@ class Message {
     final dynamic isSOSValue = map['isSOS'];
     final bool parsedIsSOS = isSOSValue is bool ? isSOSValue : (isSOSValue as int) == 1;
     final dynamic timestampValue = map['timestamp'];
+    final String parsedId = map['id'] as String;
 
     return Message(
-      id: map['id'] as String,
+      id: parsedId,
       senderId: map['senderId'] as String,
       senderName: map['senderName'] as String,
       content: map['content'] as String,
@@ -74,6 +82,7 @@ class Message {
       isSOS: parsedIsSOS,
       hopCount: (map['hopCount'] as int?) ?? 0,
       maxHops: (map['maxHops'] as int?) ?? (parsedIsSOS ? 10 : 5),
+      originId: (map['originId'] as String?) ?? parsedId,
     );
   }
 
@@ -87,6 +96,7 @@ class Message {
       'isSOS': isSOS,
       'hopCount': hopCount,
       'maxHops': maxHops,
+      'originId': originId,
     });
   }
 
@@ -101,6 +111,7 @@ class Message {
       isSOS: data['isSOS'] as bool,
       hopCount: (data['hopCount'] as int?) ?? 0,
       maxHops: (data['maxHops'] as int?) ?? ((data['isSOS'] as bool) ? 10 : 5),
+      originId: (data['originId'] as String?) ?? (data['id'] as String),
     );
   }
 }

@@ -7,6 +7,7 @@ import '../services/storage_service.dart';
 import '../models/message.dart';
 import '../widgets/device_tile.dart';
 import 'chat_screen.dart';
+import 'map_screen.dart';
 import 'sos_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -86,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _requestNearbyPermissions() async {
+    // Request Location and Nearby WiFi permissions for mesh networking
     final permissions = [
       Permission.location,
       Permission.nearbyWifiDevices,
@@ -104,8 +106,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         builder: (ctx) => AlertDialog(
           title: const Text('Permissions Required'),
           content: const Text(
-            'MeshAlert needs Location and Nearby Wi-Fi permissions to discover '
-            'and communicate with devices around you via WiFi Direct.\n\n'
+            'MeshAlert needs Location and Nearby Wi-Fi permissions '
+            'to discover and communicate with devices around you.\n\n'
             'Without these permissions the mesh network will not work.',
           ),
           actions: [
@@ -363,12 +365,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       const SizedBox(height: 24),
-                      
-                      // Action Buttons
+
+                      // Map + Chat side by side
                       Row(
                         children: [
                           Expanded(
-                            child: ElevatedButton(
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.map_outlined),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const MapScreen(),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              label: const Text('Map', style: TextStyle(fontSize: 16)),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.chat_bubble_outline),
                               onPressed: () {
                                 Navigator.push(
                                   context,
@@ -377,46 +398,69 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                   ),
                                 ).then((_) => _loadRecentMessages());
                               },
-                              child: const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Text(
-                                  'Open Chat',
-                                  style: TextStyle(fontSize: 16),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
                               ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const SosScreen(),
-                                  ),
-                                ).then((_) => _loadRecentMessages());
-                              },
-                              child: const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Text(
-                                  'SOS',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
+                              label: const Text('Chat', style: TextStyle(fontSize: 16)),
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 80), // space so content isn't hidden behind SOS bar
                     ],
                   ),
                 ),
+          bottomNavigationBar: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: AnimatedBuilder(
+                animation: _pulseController,
+                builder: (context, child) {
+                  final glow = _pulseController.value;
+                  return Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.3 + glow * 0.4),
+                          blurRadius: 12 + glow * 16,
+                          spreadRadius: 2 + glow * 4,
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.emergency, size: 28, color: Colors.white),
+                      label: const Text(
+                        'SOS',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade700,
+                        minimumSize: const Size(double.infinity, 60),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SosScreen(),
+                          ),
+                        ).then((_) => _loadRecentMessages());
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
         );
       },
     );

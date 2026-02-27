@@ -2,9 +2,11 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:nearby_connections/nearby_connections.dart';
 import 'package:uuid/uuid.dart';
 import '../models/device.dart';
+import '../models/location_update.dart';
 import '../models/message.dart';
 import '../core/constants.dart';
 import 'storage_service.dart';
@@ -26,6 +28,10 @@ class NearbyService extends ChangeNotifier {
 
   List<Device> discoveredDevices = [];
   List<Device> connectedDevices = [];
+
+  // Location tracking
+  LocationUpdate? myLocation;
+  final Map<String, LocationUpdate> peerLocations = {};
 
   static const _kTimeout = Duration(seconds: 5);
   static const _kMaxRetries = 2;
@@ -189,6 +195,19 @@ class NearbyService extends ChangeNotifier {
     final String data = utf8.decode(bytes);
     debugPrint('Received message: $data');
 
+    // Handle location update payloads
+    if (data.startsWith(Constants.LOC_PREFIX)) {
+      try {
+        final locJson = data.substring(Constants.LOC_PREFIX.length);
+        final loc = LocationUpdate.fromJson(locJson);
+        peerLocations[loc.userId] = loc;
+        notifyListeners();
+      } catch (e) {
+        debugPrint('Error parsing location update: $e');
+      }
+      return;
+    }
+
     try {
       final message = Message.fromJson(data);
 
@@ -218,8 +237,9 @@ class NearbyService extends ChangeNotifier {
   }
 
   Future<void> sendMessage(String endpointId, String content) async {
+    final id = _uuid.v4();
     final message = Message(
-      id: _uuid.v4(),
+      id: id,
       senderId: myEndpointId,
       senderName: userName,
       content: content,
@@ -227,6 +247,7 @@ class NearbyService extends ChangeNotifier {
       isSOS: false,
       hopCount: 0,
       maxHops: 5,
+      originId: id,
     );
 
     _rememberMessageId(message.id);
@@ -242,8 +263,9 @@ class NearbyService extends ChangeNotifier {
   }
 
   Future<void> broadcastMessage(String content) async {
+    final id = _uuid.v4();
     final message = Message(
-      id: _uuid.v4(),
+      id: id,
       senderId: myEndpointId,
       senderName: userName,
       content: content,
@@ -251,6 +273,7 @@ class NearbyService extends ChangeNotifier {
       isSOS: false,
       hopCount: 0,
       maxHops: 5,
+      originId: id,
     );
 
     _rememberMessageId(message.id);
@@ -269,16 +292,16 @@ class NearbyService extends ChangeNotifier {
 
   Future<void> sendSOS(String content) async {
     final sosContent = '${Constants.SOS_PREFIX}$content';
-    
+    final id = _uuid.v4();
     final message = Message(
-      id: _uuid.v4(),
+      id: id,
       senderId: myEndpointId,
       senderName: userName,
       content: sosContent,
       timestamp: DateTime.now(),
       isSOS: true,
       hopCount: 0,
-      maxHops: 10,
+      originId: id,
     );
 
     _rememberMessageId(message.id);
@@ -304,7 +327,58 @@ class NearbyService extends ChangeNotifier {
     meshError = null;
     discoveredDevices.clear();
     connectedDevices.clear();
+    peerLocations.clear();
     notifyListeners();
+  }
+
+  /// Gets current GPS fix, stores it as [myLocation], and broadcasts to peers.
+  Future<void> startLocationBroadcast() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        debugPrint('Location services disabled');
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          debugPrint('Location permission denied');
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        debugPrint('Location permission permanently denied');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+
+      myLocation = LocationUpdate(
+        userId: userName,
+        userName: userName,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        timestamp: DateTime.now(),
+      );
+      notifyListeners();
+
+      // Broadcast to all connected peers
+      final payload = Constants.LOC_PREFIX + myLocation!.toJson();
+      final bytes = Uint8List.fromList(utf8.encode(payload));
+      for (final device in connectedDevices) {
+        await _nearby.sendBytesPayload(device.id, bytes);
+      }
+      debugPrint('Location broadcast: ${position.latitude}, ${position.longitude}');
+    } catch (e) {
+      debugPrint('Error broadcasting location: $e');
+    }
   }
 
   void _rememberMessageId(String id) {
