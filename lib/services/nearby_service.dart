@@ -32,6 +32,7 @@ class NearbyService extends ChangeNotifier {
   // Location tracking
   LocationUpdate? myLocation;
   final Map<String, LocationUpdate> peerLocations = {};
+  bool _isFetchingLocation = false;
 
   static const _kTimeout = Duration(seconds: 5);
   static const _kMaxRetries = 2;
@@ -333,6 +334,8 @@ class NearbyService extends ChangeNotifier {
 
   /// Gets current GPS fix, stores it as [myLocation], and broadcasts to peers.
   Future<void> startLocationBroadcast() async {
+    if (_isFetchingLocation) return;
+    _isFetchingLocation = true;
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
@@ -355,10 +358,11 @@ class NearbyService extends ChangeNotifier {
 
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
+          accuracy: LocationAccuracy.best,
         ),
-      );
+      ).timeout(const Duration(seconds: 15), onTimeout: () {
+        throw Exception('GPS timed out — no fix after 15 s');
+      });
 
       myLocation = LocationUpdate(
         userId: userName,
@@ -378,6 +382,9 @@ class NearbyService extends ChangeNotifier {
       debugPrint('Location broadcast: ${position.latitude}, ${position.longitude}');
     } catch (e) {
       debugPrint('Error broadcasting location: $e');
+      rethrow;
+    } finally {
+      _isFetchingLocation = false;
     }
   }
 

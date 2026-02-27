@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:provider/provider.dart';
 import '../models/location_update.dart';
 import '../services/nearby_service.dart';
@@ -17,6 +18,10 @@ class _MapScreenState extends State<MapScreen>
   late AnimationController _pulseController;
   Timer? _refreshTimer;
   DateTime? _lastUpdated;
+  bool _isAcquiring = false;
+  String? _locationError;
+  double _heading = 0.0; // degrees from north
+  StreamSubscription<CompassEvent>? _compassSub;
 
   @override
   void initState() {
@@ -30,13 +35,55 @@ class _MapScreenState extends State<MapScreen>
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) setState(() => _lastUpdated = DateTime.now());
     });
+
+    // Subscribe to compass heading
+    _compassSub = FlutterCompass.events?.listen((event) {
+      final h = event.heading;
+      if (h != null && mounted) {
+        setState(() => _heading = h);
+      }
+    });
+
+    // Auto-acquire location when screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _acquireLocation();
+    });
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
     _refreshTimer?.cancel();
+    _compassSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _acquireLocation() async {
+    if (_isAcquiring || !mounted) return;
+    setState(() {
+      _isAcquiring = true;
+      _locationError = null;
+    });
+    try {
+      final service = Provider.of<NearbyService>(context, listen: false);
+      await service.startLocationBroadcast();
+      if (mounted) {
+        setState(() {
+          _isAcquiring = false;
+          _lastUpdated = DateTime.now();
+          if (service.myLocation == null) {
+            _locationError = 'Could not get GPS fix.\nEnsure location is enabled and try again.';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isAcquiring = false;
+          _locationError = 'Location error. Tap the button to retry.';
+        });
+      }
+    }
   }
 
   String _formatTime(DateTime? t) {
@@ -87,21 +134,40 @@ class _MapScreenState extends State<MapScreen>
             ),
           ),
           body: myLoc == null
-              ? const Center(
+              ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CircularProgressIndicator(color: Colors.orange),
-                      SizedBox(height: 16),
-                      Text(
-                        'Acquiring location…',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Make sure location services are enabled.',
-                        style: TextStyle(color: Colors.grey, fontSize: 12),
-                      ),
+                      if (_isAcquiring) ...
+                        [
+                          const CircularProgressIndicator(color: Colors.orange),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Acquiring location…',
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Make sure location services are enabled.',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                        ]
+                      else ...
+                        [
+                          const Icon(Icons.location_off, color: Colors.orange, size: 48),
+                          const SizedBox(height: 16),
+                          Text(
+                            _locationError ?? 'Location unavailable.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.grey, fontSize: 14),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            onPressed: _acquireLocation,
+                            icon: const Icon(Icons.my_location),
+                            label: const Text('Retry'),
+                          ),
+                        ],
                     ],
                   ),
                 )
@@ -113,6 +179,7 @@ class _MapScreenState extends State<MapScreen>
                         myLocation: myLoc,
                         peers: peers,
                         pulseValue: _pulseController.value,
+                        heading: _heading,
                       ),
                       child: const SizedBox.expand(),
                     );
@@ -120,14 +187,18 @@ class _MapScreenState extends State<MapScreen>
                 ),
           floatingActionButton: FloatingActionButton.small(
             backgroundColor: Colors.orange,
-            onPressed: () {
-              final service =
-                  Provider.of<NearbyService>(context, listen: false);
-              service.startLocationBroadcast();
-              setState(() => _lastUpdated = DateTime.now());
-            },
+            onPressed: _isAcquiring ? null : _acquireLocation,
             tooltip: 'Broadcast my location now',
-            child: const Icon(Icons.my_location, color: Colors.white),
+            child: _isAcquiring
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.my_location, color: Colors.white),
           ),
         );
       },
@@ -139,6 +210,7 @@ class _MeshMapPainter extends CustomPainter {
   final LocationUpdate myLocation;
   final List<LocationUpdate> peers;
   final double pulseValue;
+  final double heading; // degrees clockwise from north
 
   // Visible radius in degrees (~500 m each side)
   static const double _viewRange = 0.005;
@@ -147,6 +219,7 @@ class _MeshMapPainter extends CustomPainter {
     required this.myLocation,
     required this.peers,
     required this.pulseValue,
+    required this.heading,
   });
 
   Offset _toCanvas(Size size, double lat, double lon) {
@@ -271,33 +344,156 @@ class _MeshMapPainter extends CustomPainter {
       );
     }
 
-    // My dot (always on center)
-    _drawDot(
+    // My arrow (always on center, rotates with heading)
+    _drawArrow(
       canvas: canvas,
       center: Offset(size.width / 2, size.height / 2),
-      color: Colors.blueAccent,
-      radius: 10,
-      label: 'You',
+      headingDeg: heading,
     );
 
-    // Compass (top-right)
-    final compassCenter = Offset(size.width - 30, 40);
-    canvas.drawCircle(
-        compassCenter, 18, Paint()..color = Colors.white.withOpacity(0.1));
-    final northTp = TextPainter(
-      text: const TextSpan(
-          text: 'N', style: TextStyle(color: Colors.white70, fontSize: 11)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    northTp.paint(
-        canvas,
-        Offset(compassCenter.dx - northTp.width / 2,
-            compassCenter.dy - 17));
+    // Compass rose (top-right) — needle points to true north
+    final compassCenter = Offset(size.width - 36, 48);
+    _drawCompassRose(canvas, compassCenter, heading);
   }
 
   @override
   bool shouldRepaint(_MeshMapPainter old) =>
       old.pulseValue != pulseValue ||
       old.peers.length != peers.length ||
-      old.myLocation.latitude != myLocation.latitude;
-}
+      old.myLocation.latitude != myLocation.latitude ||
+      old.heading != heading;
+
+  /// Draws a teardrop/chevron arrow centred at [center], pointing toward
+  /// [headingDeg] degrees clockwise from north (up on the map).
+  void _drawArrow({
+    required Canvas canvas,
+    required Offset center,
+    required double headingDeg,
+  }) {
+    // Convert heading to canvas rotation:
+    // heading 0 (north) = up = -Y axis on canvas
+    // rotate canvas by headingDeg so our "up" arrow points the right way
+    final rad = headingDeg * pi / 180;
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(rad);
+
+    // Glow / accuracy circle
+    canvas.drawCircle(
+      Offset.zero,
+      22,
+      Paint()..color = Colors.blueAccent.withOpacity(0.15),
+    );
+
+    // Arrow body (pointing up = north when heading=0)
+    final arrowPath = Path()
+      ..moveTo(0, -16)        // tip
+      ..lineTo(10, 10)        // right base
+      ..lineTo(0, 5)          // center notch
+      ..lineTo(-10, 10)       // left base
+      ..close();
+
+    // Shadow
+    canvas.drawPath(
+      arrowPath.shift(const Offset(1.5, 1.5)),
+      Paint()..color = Colors.black38,
+    );
+
+    // Fill: front half blue, rear half lighter to give 3-D sense
+    canvas.drawPath(arrowPath, Paint()..color = Colors.blueAccent);
+
+    // Centre dot
+    canvas.drawCircle(
+      Offset.zero,
+      4,
+      Paint()..color = Colors.white,
+    );
+
+    canvas.restore();
+
+    // "You" label below the arrow
+    final tp = TextPainter(
+      text: const TextSpan(
+        text: 'You',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          shadows: [Shadow(blurRadius: 3, color: Colors.black)],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy + 20));
+  }
+
+  /// Draws a compass rose whose needle always points to geographic north,
+  /// compensating for the device's current [headingDeg].
+  void _drawCompassRose(Canvas canvas, Offset center, double headingDeg) {
+    final rad = headingDeg * pi / 180;
+
+    // Outer ring
+    canvas.drawCircle(
+      center,
+      22,
+      Paint()..color = Colors.white.withOpacity(0.12),
+    );
+    canvas.drawCircle(
+      center,
+      22,
+      Paint()
+        ..color = Colors.white24
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    // Rotate the needle opposite to heading so it always points to true north
+    canvas.rotate(-rad);
+
+    // North needle (red)
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, -15)
+        ..lineTo(4, 0)
+        ..lineTo(0, 3)
+        ..lineTo(-4, 0)
+        ..close(),
+      Paint()..color = Colors.red,
+    );
+
+    // South needle (white/grey)
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, 15)
+        ..lineTo(4, 0)
+        ..lineTo(0, -3)
+        ..lineTo(-4, 0)
+        ..close(),
+      Paint()..color = Colors.white54,
+    );
+
+    // Centre pin
+    canvas.drawCircle(Offset.zero, 3, Paint()..color = Colors.white);
+
+    canvas.restore();
+
+    // "N" label above the rose
+    final nTp = TextPainter(
+      text: const TextSpan(
+        text: 'N',
+        style: TextStyle(
+          color: Colors.red,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    nTp.paint(
+      canvas,
+      Offset(center.dx - nTp.width / 2, center.dy - 38),
+    );
+  }}
