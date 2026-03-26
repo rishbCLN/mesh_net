@@ -18,6 +18,8 @@ import '../core/constants.dart';
 import 'danger_zone_service.dart';
 import 'media_message_service.dart';
 import 'storage_service.dart';
+import '../utils/battery_helper.dart';
+import '../utils/wake_lock_helper.dart';
 
 class NearbyService extends ChangeNotifier {
   final Nearby _nearby = Nearby();
@@ -253,6 +255,8 @@ class NearbyService extends ChangeNotifier {
     }
 
     if (_isRunning) {
+      // Acquire wake lock to keep mesh alive when screen is off
+      await WakeLockHelper.acquire();
       // Keep locations fresh so nearby survivors remain visible on the map.
       _startLocationHeartbeat();
       unawaited(startLocationBroadcast());
@@ -347,6 +351,11 @@ class NearbyService extends ChangeNotifier {
 
     // Cache the name for later use
     _endpointNames[endpointId] = endpointName;
+
+    // Remove any stale discovered entry with the same name but different ID
+    // (happens when a peer disconnects and reconnects with a new endpoint ID)
+    discoveredDevices.removeWhere(
+        (d) => d.name == endpointName && d.id != endpointId);
 
     // Add to discovered list if new
     if (!discoveredDevices.any((d) => d.id == endpointId)) {
@@ -474,8 +483,13 @@ class NearbyService extends ChangeNotifier {
       );
 
       discoveredDevices.removeWhere((d) => d.id == endpointId);
+      // Also remove any stale discovered entry with the same name (different ID from reconnection)
+      discoveredDevices.removeWhere((d) => d.name == device.name);
 
       if (!connectedDevices.any((d) => d.id == endpointId)) {
+        // Remove any stale connected entry with the same name but different ID
+        connectedDevices.removeWhere(
+            (d) => d.name == device.name && d.id != endpointId);
         connectedDevices.add(device.copyWith(isConnected: true));
       }
 
@@ -811,6 +825,7 @@ class NearbyService extends ChangeNotifier {
 
   Future<void> sendMessage(String endpointId, String content) async {
     final id = _uuid.v4();
+    final battery = await getBatteryLevel();
     final message = Message(
       id: id,
       senderId: myEndpointId,
@@ -823,6 +838,7 @@ class NearbyService extends ChangeNotifier {
       originId: id,
       senderLat: myLocation?.latitude,
       senderLng: myLocation?.longitude,
+      senderBattery: battery,
     );
 
     _rememberMessageId(message.id);
@@ -839,6 +855,7 @@ class NearbyService extends ChangeNotifier {
 
   Future<void> broadcastMessage(String content) async {
     final id = _uuid.v4();
+    final battery = await getBatteryLevel();
     final message = Message(
       id: id,
       senderId: myEndpointId,
@@ -851,6 +868,7 @@ class NearbyService extends ChangeNotifier {
       originId: id,
       senderLat: myLocation?.latitude,
       senderLng: myLocation?.longitude,
+      senderBattery: battery,
     );
 
     _rememberMessageId(message.id);
@@ -899,6 +917,7 @@ class NearbyService extends ChangeNotifier {
   Future<void> sendSOS(String content) async {
     final sosContent = '${Constants.SOS_PREFIX}$content';
     final id = _uuid.v4();
+    final battery = await getBatteryLevel();
     final message = Message(
       id: id,
       senderId: myEndpointId,
@@ -910,6 +929,7 @@ class NearbyService extends ChangeNotifier {
       originId: id,
       senderLat: myLocation?.latitude,
       senderLng: myLocation?.longitude,
+      senderBattery: battery,
     );
 
     _rememberMessageId(message.id);
@@ -930,6 +950,7 @@ class NearbyService extends ChangeNotifier {
     try { await _nearby.stopAdvertising(); } catch (_) {}
     try { await _nearby.stopDiscovery(); } catch (_) {}
     try { await _nearby.stopAllEndpoints(); } catch (_) {}
+    await WakeLockHelper.release();
     _locationBroadcastTimer?.cancel();
     _locationBroadcastTimer = null;
     _positionStreamSub?.cancel();

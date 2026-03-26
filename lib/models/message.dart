@@ -16,6 +16,7 @@ class Message {
   final String? mediaBase64;
   final double? senderLat;
   final double? senderLng;
+  final int? senderBattery;
 
   Message({
     required this.id,
@@ -33,6 +34,7 @@ class Message {
     this.mediaBase64,
     this.senderLat,
     this.senderLng,
+    this.senderBattery,
   })  : hopCount = hopCount,
         // SOS messages always have maxHops forced to 10
         maxHops = isSOS ? 10 : (maxHops ?? 5),
@@ -54,6 +56,7 @@ class Message {
     String? mediaBase64,
     double? senderLat,
     double? senderLng,
+    int? senderBattery,
   }) {
     final resolvedIsSOS = isSOS ?? this.isSOS;
     return Message(
@@ -72,6 +75,7 @@ class Message {
       mediaBase64: mediaBase64 ?? this.mediaBase64,
       senderLat: senderLat ?? this.senderLat,
       senderLng: senderLng ?? this.senderLng,
+      senderBattery: senderBattery ?? this.senderBattery,
     );
   }
 
@@ -91,6 +95,7 @@ class Message {
     if (mediaPath != null) map['mediaPath'] = mediaPath;
     if (senderLat != null) map['senderLat'] = senderLat;
     if (senderLng != null) map['senderLng'] = senderLng;
+    if (senderBattery != null) map['senderBattery'] = senderBattery;
     return map;
   }
 
@@ -116,6 +121,7 @@ class Message {
       mediaPath: map['mediaPath'] as String?,
       senderLat: (map['senderLat'] as num?)?.toDouble(),
       senderLng: (map['senderLng'] as num?)?.toDouble(),
+      senderBattery: map['senderBattery'] as int?,
     );
   }
 
@@ -136,6 +142,7 @@ class Message {
     if (mediaBase64 != null) map['mediaBase64'] = mediaBase64;
     if (senderLat != null) map['senderLat'] = senderLat;
     if (senderLng != null) map['senderLng'] = senderLng;
+    if (senderBattery != null) map['senderBattery'] = senderBattery;
     return jsonEncode(map);
   }
 
@@ -156,6 +163,7 @@ class Message {
       mediaBase64: data['mediaBase64'] as String?,
       senderLat: (data['senderLat'] as num?)?.toDouble(),
       senderLng: (data['senderLng'] as num?)?.toDouble(),
+      senderBattery: (data['senderBattery'] as int?),
     );
   }
 }

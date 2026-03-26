@@ -12,6 +12,8 @@ import '../services/storage_service.dart';
 import '../services/voice_message_service.dart';
 import '../models/message.dart';
 import 'image_viewer_screen.dart';
+import '../utils/time_ago.dart';
+import '../utils/battery_helper.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -26,6 +28,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   List<Message> messages = [];
   Timer? _refreshTimer;
+  Timer? _timeAgoTimer;
   NearbyService? _nearbyRef;
   final VoiceMessageService _voiceService = VoiceMessageService();
   bool _isRecording = false;
@@ -47,6 +50,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _loadMessages();
     });
+    // Refresh time-ago labels every 10 seconds
+    _timeAgoTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) setState(() {});
+    });
 
     // Register a direct listener so new messages appear the instant
     // NearbyService notifies (peer messages, own sent messages, etc.)
@@ -64,6 +71,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _nearbyRef?.removeListener(_onServiceChanged);
     _refreshTimer?.cancel();
+    _timeAgoTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     _voiceService.dispose();
@@ -144,6 +152,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final messageId = const Uuid().v4();
       final lat = nearbyService.myLocation?.latitude ?? 0.0;
       final lng = nearbyService.myLocation?.longitude ?? 0.0;
+      final battery = await getBatteryLevel();
 
       final metadataJson = MediaMessageService.buildPhotoMetadata(
         messageId: messageId,
@@ -167,6 +176,7 @@ class _ChatScreenState extends State<ChatScreen> {
         mediaPath: compressedPath,
         senderLat: lat,
         senderLng: lng,
+        senderBattery: battery,
       );
 
       await nearbyService.broadcastMediaFile(
@@ -200,6 +210,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final messageId = const Uuid().v4();
       final lat = nearbyService.myLocation?.latitude ?? 0.0;
       final lng = nearbyService.myLocation?.longitude ?? 0.0;
+      final battery = await getBatteryLevel();
 
       final metadataJson = MediaMessageService.buildAudioMetadata(
         messageId: messageId,
@@ -224,6 +235,7 @@ class _ChatScreenState extends State<ChatScreen> {
         mediaPath: path,
         senderLat: lat,
         senderLng: lng,
+        senderBattery: battery,
       );
 
       await nearbyService.broadcastMediaFile(
@@ -447,14 +459,28 @@ class _ChatScreenState extends State<ChatScreen> {
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
           constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.75,
+            maxWidth: message.isSOS
+                ? MediaQuery.of(context).size.width * 0.92
+                : MediaQuery.of(context).size.width * 0.75,
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: EdgeInsets.symmetric(
+            horizontal: message.isSOS ? 20 : 16,
+            vertical: message.isSOS ? 16 : 12,
+          ),
           decoration: BoxDecoration(
             color: bubbleColor,
             borderRadius: BorderRadius.circular(16),
             border: message.isSOS
-                ? Border.all(color: Colors.red, width: 2)
+                ? Border.all(color: Colors.redAccent, width: 2.5)
+                : null,
+            boxShadow: message.isSOS
+                ? [
+                    BoxShadow(
+                      color: Colors.red.withValues(alpha: 0.5),
+                      blurRadius: 20,
+                      spreadRadius: 3,
+                    ),
+                  ]
                 : null,
           ),
           child: Column(
@@ -469,7 +495,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   color: message.isSOS ? Colors.white : Colors.white70,
                 ),
               ),
-              // Location label
+              // Location label + battery + coordinates
               if (message.senderLat != null && message.senderLng != null)
                 FutureBuilder<String>(
                   future: _getLocationLabel(message),
@@ -489,25 +515,66 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   },
                 ),
+              // Battery and location label
+              if (message.senderBattery != null || (message.senderLat != null && message.senderLng != null))
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (message.senderBattery != null) ...[
+                        Icon(
+                          message.senderBattery! > 60
+                              ? Icons.battery_full
+                              : message.senderBattery! > 20
+                                  ? Icons.battery_3_bar
+                                  : Icons.battery_1_bar,
+                          size: 12,
+                          color: message.senderBattery! > 60
+                              ? Colors.greenAccent.withValues(alpha: 0.7)
+                              : message.senderBattery! > 20
+                                  ? Colors.orangeAccent.withValues(alpha: 0.7)
+                                  : Colors.redAccent.withValues(alpha: 0.7),
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${message.senderBattery}%',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.white.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               const SizedBox(height: 4),
               // SOS indicator
               if (message.isSOS) ...[
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.warning, color: Colors.white, size: 16),
-                    SizedBox(width: 4),
-                    Text(
-                      'EMERGENCY',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.emergency, color: Colors.white, size: 20),
+                      SizedBox(width: 6),
+                      Text(
+                        '🚨 EMERGENCY SOS',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                          letterSpacing: 1,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
               ],
               // Content: photo, audio, or text
               _buildMessageContent(message),
@@ -518,7 +585,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '${message.timestamp.hour}:${message.timestamp.minute.toString().padLeft(2, '0')}',
+                    timeAgo(message.timestamp),
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.6),
                       fontSize: 11,

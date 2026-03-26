@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
 import 'services/nearby_service.dart';
 import 'services/gateway_service.dart';
+import 'services/roll_call_scheduler.dart';
+import 'services/notification_service.dart';
 import 'services/danger_zone_service.dart';
 import 'services/storage_service.dart';
 import 'core/theme.dart';
@@ -32,8 +34,9 @@ class _MeshLifecycleRoot extends StatefulWidget {
 
 class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
     with WidgetsBindingObserver {
-  static const Duration _pauseDisconnectDelay = Duration(seconds: 8);
   GatewayService? _gatewayService;
+  RollCallScheduler? _rollCallScheduler;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -43,7 +46,7 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
     WidgetsBinding.instance.addPostFrameCallback((_) => _initGateway());
   }
 
-  void _initGateway() {
+  void _initGateway() async {
     final nearby = Provider.of<NearbyService>(context, listen: false);
     final dangerZone = Provider.of<DangerZoneService>(context, listen: false);
     final storage = StorageService();
@@ -58,11 +61,23 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
     nearby.onPeerConnectedCallback = (peerId, peerName) async {
       await _gatewayService!.onPeerConnected(peerId, peerName);
     };
+
+    // Start the 5-minute auto roll call scheduler
+    _rollCallScheduler = RollCallScheduler(nearby);
+    _rollCallScheduler!.navigatorKey = _navigatorKey;
+    _rollCallScheduler!.start();
+
     setState(() {});
+
+    // Initialize notification service (non-blocking — UI is already loaded)
+    NotificationService.instance.initialize(nearby).catchError((e) {
+      debugPrint('Notification init error: $e');
+    });
   }
 
   @override
   void dispose() {
+    _rollCallScheduler?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -76,19 +91,8 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
       return;
     }
 
-    if (state == AppLifecycleState.paused) {
-      Future<void>.delayed(_pauseDisconnectDelay).then((_) async {
-        // If still not running foreground by the time delay expires, tear down.
-        if (!mounted) return;
-        final current = WidgetsBinding.instance.lifecycleState;
-        if (current == AppLifecycleState.paused ||
-            current == AppLifecycleState.hidden) {
-          await service.disconnect();
-        }
-      });
-      return;
-    }
-
+    // Do NOT disconnect on pause/hidden — keep mesh alive while screen is off.
+    // Only reconnect if the service stopped for some other reason.
     if (state == AppLifecycleState.resumed && !service.isRunning) {
       _resumeMesh(service);
     }
@@ -115,6 +119,7 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
     return ChangeNotifierProvider<GatewayService>.value(
       value: _gatewayService!,
       child: MaterialApp(
+        navigatorKey: _navigatorKey,
         title: 'MeshAlert',
         theme: AppTheme.darkTheme,
         debugShowCheckedModeBanner: false,

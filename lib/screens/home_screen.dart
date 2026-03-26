@@ -18,6 +18,7 @@ import 'resources_screen.dart';
 import 'roll_call_screen.dart';
 import 'sos_screen.dart';
 import 'topology_screen.dart';
+import '../utils/time_ago.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -29,9 +30,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final StorageService _storage = StorageService();
   List<Message> recentMessages = [];
+  int _otherMessageCount = 0;
+  int _lastSeenCount = 0;
   bool _isInitialized = false;
   bool _meshRetrying = false;
   late AnimationController _pulseController;
+  Timer? _timeAgoTimer;
+  NearbyService? _nearbyRef;
 
   @override
   void initState() {
@@ -42,10 +47,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     )..repeat(reverse: true);
     
     _initializeApp();
+    // Refresh time-ago labels every 10 seconds
+    _timeAgoTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) setState(() {});
+    });
+    // Listen for NearbyService changes to auto-refresh
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _nearbyRef = Provider.of<NearbyService>(context, listen: false);
+      _nearbyRef!.addListener(_onServiceChanged);
+    });
+  }
+
+  void _onServiceChanged() {
+    _loadRecentMessages();
   }
 
   @override
   void dispose() {
+    _nearbyRef?.removeListener(_onServiceChanged);
+    _timeAgoTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -103,6 +123,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.bluetoothAdvertise,
+      Permission.ignoreBatteryOptimizations,
     ];
 
     final statuses = await permissions.request();
@@ -172,10 +193,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _loadRecentMessages() async {
     final messages = await _storage.getAllMessages();
     if (mounted) {
+      final myId = _nearbyRef?.myEndpointId ?? '';
+      final otherMsgs = messages.where((m) => m.senderId != myId).length;
       setState(() {
-        recentMessages = messages.reversed.take(5).toList();
+        _otherMessageCount = otherMsgs;
+        recentMessages = messages.reversed.take(2).toList();
       });
     }
+  }
+
+  int get _unreadCount {
+    final unread = _otherMessageCount - _lastSeenCount;
+    return unread > 0 ? unread : 0;
   }
 
   @override
@@ -399,7 +428,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       trailing: Text(
-                                        '${msg.timestamp.hour}:${msg.timestamp.minute.toString().padLeft(2, '0')}',
+                                        timeAgo(msg.timestamp),
                                         style: const TextStyle(fontSize: 12),
                                       ),
                                     )),
@@ -431,20 +460,49 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: ElevatedButton.icon(
-                              icon: const Icon(Icons.chat_bubble_outline),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const ChatScreen(),
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    icon: const Icon(Icons.chat_bubble_outline),
+                                    onPressed: () {
+                                      setState(() => _lastSeenCount = _otherMessageCount);
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => const ChatScreen(),
+                                        ),
+                                      ).then((_) => _loadRecentMessages());
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                    ),
+                                    label: const Text('Chat', style: TextStyle(fontSize: 16)),
                                   ),
-                                ).then((_) => _loadRecentMessages());
-                              },
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                              ),
-                              label: const Text('Chat', style: TextStyle(fontSize: 16)),
+                                ),
+                                if (_unreadCount > 0)
+                                  Positioned(
+                                    top: -6,
+                                    right: -4,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '$_unreadCount',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ],
@@ -475,33 +533,58 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ),
                       const SizedBox(height: 12),
                       // Roll Call button
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.how_to_reg_rounded),
-                        onPressed: nearbyService.connectedDevices.isEmpty
-                            ? null
-                            : () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const RollCallScreen(),
-                                  ),
-                                );
-                              },
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 52),
-                          backgroundColor: const Color(0xFF1A0D2E),
-                          foregroundColor: Colors.deepPurpleAccent,
-                          disabledForegroundColor: Colors.deepPurpleAccent.withValues(alpha: 0.35),
-                          side: const BorderSide(color: Colors.deepPurpleAccent, width: 1),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        label: Text(
-                          nearbyService.connectedDevices.isEmpty
-                              ? 'Roll Call (connect devices first)'
-                              : 'Roll Call  *  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
-                          style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
+                      AnimatedBuilder(
+                        animation: _pulseController,
+                        builder: (context, child) {
+                          final glow = _pulseController.value;
+                          return Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: nearbyService.connectedDevices.isNotEmpty
+                                  ? [
+                                      BoxShadow(
+                                        color: Colors.deepPurpleAccent.withValues(alpha: 0.3 + glow * 0.3),
+                                        blurRadius: 10 + glow * 10,
+                                        spreadRadius: 1 + glow * 2,
+                                      ),
+                                    ]
+                                  : [],
+                            ),
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.how_to_reg_rounded, size: 24),
+                              onPressed: nearbyService.connectedDevices.isEmpty
+                                  ? null
+                                  : () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const RollCallScreen(),
+                                        ),
+                                      );
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 58),
+                                backgroundColor: const Color(0xFF2A1050),
+                                foregroundColor: Colors.purpleAccent.shade100,
+                                disabledForegroundColor: Colors.deepPurpleAccent.withValues(alpha: 0.35),
+                                side: BorderSide(
+                                  color: nearbyService.connectedDevices.isNotEmpty
+                                      ? Colors.purpleAccent
+                                      : Colors.deepPurpleAccent.withValues(alpha: 0.4),
+                                  width: 2,
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                              ),
+                              label: Text(
+                                nearbyService.connectedDevices.isEmpty
+                                    ? 'Roll Call (connect devices first)'
+                                    : '📢  ROLL CALL  •  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       // Resources button
@@ -551,19 +634,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      // Reachable survivors counter
-                      _ReachableCounter(service: nearbyService),
                       const SizedBox(height: 80), // space so content isn't hidden behind SOS bar
                     ],
                   ),
                 ),
-              // -- Incoming roll call overlay ----------------------------------------
-              if (nearbyService.incomingRollCall != null)
-                _RollCallResponderOverlay(
-                  rollCall: nearbyService.incomingRollCall!,
-                  service: nearbyService,
-                ),
+              // Roll call overlay is now handled globally by RollCallScheduler
             ],
           ),
           bottomNavigationBar: SafeArea(
@@ -700,53 +775,6 @@ class _MyStatusCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-// ─── Reachable survivors counter ────────────────────────────────────────────
-
-class _ReachableCounter extends StatelessWidget {
-  final NearbyService service;
-
-  const _ReachableCounter({required this.service});
-
-  @override
-  Widget build(BuildContext context) {
-    final direct = service.connectedDevices.length;
-    // Estimate: each connected peer may also have ~2 peers (minus us).
-    // Conservative estimate: direct + direct * 1.5 (unique via mesh hops)
-    final estimated = direct + (direct * 1.5).round();
-    final reachable = direct == 0 ? 0 : estimated;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.wifi_tethering_rounded,
-            color: direct > 0 ? Colors.greenAccent : Colors.white24,
-            size: 20,
-          ),
-          const SizedBox(width: 10),
-          Text(
-            direct == 0
-                ? 'No survivors reachable'
-                : '~$reachable survivors reachable via mesh',
-            style: TextStyle(
-              color: direct > 0 ? Colors.white60 : Colors.white24,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
       ),
     );
   }

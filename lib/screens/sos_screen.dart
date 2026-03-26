@@ -15,6 +15,16 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
   late AnimationController _pulseController;
   bool _sosSent = false;
   int _deviceCount = 0;
+  String? _selectedCondition;
+
+  static const List<Map<String, String>> _conditions = [
+    {'label': 'Body Injury', 'icon': '🤕'},
+    {'label': 'Lack of Food', 'icon': '🍽️'},
+    {'label': 'Total Fading', 'icon': '😵'},
+    {'label': 'Parts Amputated', 'icon': '🩸'},
+    {'label': 'Trapped / Stuck', 'icon': '🏚️'},
+    {'label': 'Medical Emergency', 'icon': '🏥'},
+  ];
 
   @override
   void initState() {
@@ -36,6 +46,9 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
     final nearbyService = Provider.of<NearbyService>(context, listen: false);
     
     String sosMessage = '${nearbyService.userName} NEEDS HELP';
+    if (_selectedCondition != null) {
+      sosMessage += ' [$_selectedCondition]';
+    }
     final customMsg = _customMessageController.text.trim();
     if (customMsg.isNotEmpty) {
       sosMessage += ' - $customMsg';
@@ -192,6 +205,67 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                       ),
                     ),
                   const SizedBox(height: 40),
+                  
+                  // Condition picker
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'What is your condition?',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _conditions.map((c) {
+                            final selected = _selectedCondition == c['label'];
+                            return GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedCondition = selected ? null : c['label'];
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: selected
+                                      ? Colors.white.withValues(alpha: 0.25)
+                                      : Colors.white.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: selected
+                                        ? Colors.white
+                                        : Colors.white.withValues(alpha: 0.3),
+                                    width: selected ? 2 : 1,
+                                  ),
+                                ),
+                                child: Text(
+                                  '${c['icon']}  ${c['label']}',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   
                   // Custom message input
                   Container(

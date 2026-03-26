@@ -21,7 +21,7 @@ class StorageService {
     String path = join(await getDatabasesPath(), Constants.DB_NAME);
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE ${Constants.TABLE_MESSAGES} (
@@ -37,7 +37,8 @@ class StorageService {
             mediaType TEXT,
             mediaPath TEXT,
             senderLat REAL,
-            senderLng REAL
+            senderLng REAL,
+            senderBattery INTEGER
           )
         ''');
         await db.execute('''
@@ -91,6 +92,11 @@ class StorageService {
           } catch (_) {}
           try {
             await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN senderLng REAL');
+          } catch (_) {}
+        }
+        if (oldVersion < 6) {
+          try {
+            await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN senderBattery INTEGER');
           } catch (_) {}
         }
       },
