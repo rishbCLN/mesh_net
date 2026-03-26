@@ -21,9 +21,14 @@ dependencies:
   telephony: ^0.2.0
   connectivity_plus: ^5.0.0
   http: ^1.0.0
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+  path_provider: ^2.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 flutter:
   uses-material-design: true
+  assets:
+    - assets/maps/

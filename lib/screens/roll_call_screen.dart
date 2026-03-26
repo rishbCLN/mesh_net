@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/roll_call.dart';
 import '../services/nearby_service.dart';
 
-// â”€â”€â”€ Coordinator Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Coordinator Screen -------------------------------------------------------
 
 class RollCallScreen extends StatefulWidget {
   const RollCallScreen({super.key});
@@ -96,7 +96,7 @@ class _RollCallScreenState extends State<RollCallScreen>
             appBar: AppBar(
               backgroundColor: const Color(0xFF0D1423),
               title: Text(
-                'Roll Call â€” Round ${rc.round}',
+                'Roll Call -- Round ${rc.round}',
                 style: const TextStyle(color: Colors.white),
               ),
               iconTheme: const IconThemeData(color: Colors.white),
@@ -110,7 +110,7 @@ class _RollCallScreenState extends State<RollCallScreen>
             ),
             body: Column(
               children: [
-                // â”€â”€ Countdown ring + summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // -- Countdown ring + summary --------------------------------
                 Container(
                   color: const Color(0xFF101828),
                   padding: const EdgeInsets.symmetric(vertical: 20),
@@ -187,14 +187,14 @@ class _RollCallScreenState extends State<RollCallScreen>
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Text(
                     rc.allResponded
-                        ? 'âœ“ All accounted for â€” next round in 2 min'
-                        : 'Auto-repeats every 2 min  â€¢  No-response â†’ flagged Unknown',
+                        ? 'OK All accounted for -- next round in 2 min'
+                        : 'Auto-repeats every 2 min  *  No-response -> flagged Unknown',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white38, fontSize: 11),
                   ),
                 ),
 
-                // â”€â”€ Roster list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // -- Roster list ---------------------------------------------
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
                   child: Align(
@@ -258,7 +258,7 @@ class _RollCallScreenState extends State<RollCallScreen>
   }
 }
 
-// â”€â”€â”€ Ring painter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Ring painter -------------------------------------------------------------
 
 class _RingPainter extends CustomPainter {
   final double progress;
@@ -301,7 +301,7 @@ class _RingPainter extends CustomPainter {
       old.progress != progress || old.color != color;
 }
 
-// â”€â”€â”€ Roster tile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Roster tile --------------------------------------------------------------
 
 class _RosterTile extends StatelessWidget {
   final RollCallEntry entry;
@@ -387,7 +387,7 @@ class _RosterTile extends StatelessWidget {
   }
 }
 
-// â”€â”€â”€ Summary widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Summary widgets ----------------------------------------------------------
 
 class _StatBox extends StatelessWidget {
   final int value;

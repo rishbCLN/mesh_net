@@ -1,10 +1,20 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter_compass/flutter_compass.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/danger_zone.dart';
 import '../models/location_update.dart';
 import '../models/triage_status.dart';
+import '../map/mbtiles_tile_provider.dart';
+import '../map/cached_tile_provider.dart';
+import '../map/building_label_layer.dart';
+import '../services/danger_zone_service.dart';
 import '../services/nearby_service.dart';
 import 'navigate_screen.dart';
 
@@ -15,60 +25,136 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _pulseController;
-  Timer? _refreshTimer;
-  DateTime? _lastUpdated;
+class _MapScreenState extends State<MapScreen> {
+  final MapController _mapController = MapController();
+  late final MBTilesTileProvider _tileProvider;
+  CachedNetworkTileProvider? _fallbackProvider;
+  bool _tileProviderReady = false;
   bool _isAcquiring = false;
   String? _locationError;
-  double _heading = 0.0; // degrees from north
-  double _zoom = 1.0;
-  double _zoomStart = 1.0;
-  StreamSubscription<CompassEvent>? _compassSub;
-  LocationUpdate? _selectedPeer;
+  Timer? _refreshTimer;
+  double _currentZoom = 16.0;
+  LatLng _mapCenterDisplay = const LatLng(kVitLat, kVitLng);
 
-  static const double _minZoom = 0.8;
-  static const double _maxZoom = 8.0;
+  // VIT Vellore campus default center
+  static const double kVitLat = 12.9692;
+  static const double kVitLng = 79.1559;
 
-  void _changeZoom(double delta) {
-    setState(() {
-      _zoom = (_zoom + delta).clamp(_minZoom, _maxZoom);
-    });
-  }
+  // Last-known location restored from SharedPreferences
+  LatLng? _savedLocation;
+
+  // Auto-follow: map center tracks self when true; panning disables it
+  bool _followLocation = true;
+
+  // Used to detect when location changes so we auto-move
+  LocationUpdate? _prevMyLoc;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    )..repeat(reverse: true);
-
-    // Refresh UI every 5 seconds
+    _initTileProvider();
+    _loadSavedLocation();
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (mounted) setState(() => _lastUpdated = DateTime.now());
+      if (mounted) setState(() {});
     });
-
-    // Subscribe to compass heading
-    _compassSub = FlutterCompass.events?.listen((event) {
-      final h = event.heading;
-      if (h != null && mounted) {
-        setState(() => _heading = h);
-      }
-    });
-
-    // Auto-acquire location when screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _acquireLocation();
+      // Listen to NearbyService so map auto-follows GPS updates
+      final service = Provider.of<NearbyService>(context, listen: false);
+      service.addListener(_onServiceLocationUpdate);
     });
+  }
+
+  /// Load last-known GPS from SharedPreferences and use as initial map center.
+  Future<void> _loadSavedLocation() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lat = prefs.getDouble('lastLat');
+      final lng = prefs.getDouble('lastLng');
+      if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+        if (mounted) {
+          setState(() {
+            _savedLocation = LatLng(lat, lng);
+            _mapCenterDisplay = LatLng(lat, lng);
+          });
+          // Move map to last known position as soon as controller is ready
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              try {
+                _mapController.move(LatLng(lat, lng), _currentZoom);
+              } catch (_) {}
+            }
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Called every time NearbyService notifies — moves map if following.
+  void _onServiceLocationUpdate() {
+    if (!mounted) return;
+    final service = Provider.of<NearbyService>(context, listen: false);
+    final loc = service.myLocation;
+    if (loc == null) return;
+    if (loc.latitude == 0.0 && loc.longitude == 0.0) return;
+    // Detect first real fix or movement
+    if (_prevMyLoc?.latitude == loc.latitude &&
+        _prevMyLoc?.longitude == loc.longitude) return;
+    _prevMyLoc = loc;
+    // Prefetch surrounding tiles once on first valid GPS fix
+    if (_savedLocation == null && _fallbackProvider != null) {
+      _prefetchSurroundingTiles(loc.latitude, loc.longitude);
+    }
+    // Move map if user hasn't manually panned away
+    if (_followLocation) {
+      try {
+        _mapController.move(LatLng(loc.latitude, loc.longitude), _currentZoom);
+      } catch (_) {}
+    }
+    setState(() {
+      _mapCenterDisplay = LatLng(loc.latitude, loc.longitude);
+    });
+  }
+
+  /// Download and cache all tiles in a ~1.5 km radius around [lat,lng]
+  /// for zoom levels 14-17.  Runs in background — errors silently ignored.
+  void _prefetchSurroundingTiles(double lat, double lng) {
+    if (_fallbackProvider == null) return;
+    CachedNetworkTileProvider.prefetchArea(
+      lat: lat,
+      lng: lng,
+      radiusKm: 1.5,
+      minZoom: 14,
+      maxZoom: 17,
+      cacheDir: _fallbackProvider!.cacheDir,
+    );
+  }
+
+  /// Asynchronously initializes MBTiles + fallback tile providers.
+  Future<void> _initTileProvider() async {
+    _tileProvider = MBTilesTileProvider();
+    await _tileProvider.initialize();
+    final fb = CachedNetworkTileProvider();
+    await fb.initialize();
+    if (mounted) {
+      setState(() {
+        _fallbackProvider = fb;
+        _tileProviderReady = true;
+      });
+    } else {
+      _fallbackProvider = fb;
+      _tileProviderReady = true;
+    }
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
     _refreshTimer?.cancel();
-    _compassSub?.cancel();
+    // Remove NearbyService listener
+    final service =
+        Provider.of<NearbyService>(context, listen: false);
+    service.removeListener(_onServiceLocationUpdate);
+    _tileProvider.dispose();
     super.dispose();
   }
 
@@ -84,786 +170,568 @@ class _MapScreenState extends State<MapScreen>
       if (mounted) {
         setState(() {
           _isAcquiring = false;
-          _lastUpdated = DateTime.now();
           if (service.myLocation == null) {
-            _locationError = 'Could not get GPS fix.\nEnsure location is enabled and try again.';
+            _locationError = 'Could not get GPS fix.';
           }
         });
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         setState(() {
           _isAcquiring = false;
-          _locationError = 'Location error. Tap the button to retry.';
+          _locationError = 'Location error. Tap retry.';
         });
       }
     }
   }
 
-  String _formatTime(DateTime? t) {
-    if (t == null) return 'â€”';
-    return '${t.hour.toString().padLeft(2, '0')}:'
-        '${t.minute.toString().padLeft(2, '0')}:'
-        '${t.second.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Consumer<NearbyService>(
-      builder: (context, service, _) {
-        final myLoc = service.myLocation;
-        final peers = service.peerLocations.values.toList();
-        peers.sort((a, b) => _distanceMeters(myLoc, a).compareTo(_distanceMeters(myLoc, b)));
-        final survivorCount = peers.length + (myLoc != null ? 1 : 0);
-        final sosCount = peers.where((p) =>
-            p.triageStatus == TriageStatus.sos || p.isSOS).length;
-        final critCount = peers.where((p) =>
-            p.triageStatus == TriageStatus.critical).length;
+    final service = Provider.of<NearbyService>(context);
+    final dangerService = Provider.of<DangerZoneService>(context);
+    final myLoc = service.myLocation;
+    final peers = service.peerLocations.values.toList();
+    final zones = dangerService.zones.values.toList();
 
-        return Scaffold(
-          backgroundColor: const Color(0xFF1A1A2E),
-          appBar: AppBar(
-            backgroundColor: const Color(0xFF16213E),
-            title: const Text('Live Survivor Map',
-                style: TextStyle(color: Colors.white)),
-            iconTheme: const IconThemeData(color: Colors.white),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(28),
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.people, size: 14, color: Colors.orange),
-                    const SizedBox(width: 4),
-                    Text(
-                      '$survivorCount located survivor${survivorCount == 1 ? '' : 's'}',
-                      style: const TextStyle(color: Colors.orange, fontSize: 12),
-                    ),
-                    const SizedBox(width: 16),
-                    const Icon(Icons.update, size: 14, color: Colors.grey),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Updated ${_formatTime(_lastUpdated ?? DateTime.now())}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                    if (sosCount > 0) ...[
-                      const SizedBox(width: 16),
-                      Icon(Icons.warning_rounded,
-                          size: 14, color: TriageStatus.sos.color),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$sosCount TRAPPED',
-                        style: TextStyle(
-                            color: TriageStatus.sos.color,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                    if (critCount > 0) ...[
-                      const SizedBox(width: 12),
-                      Icon(Icons.local_hospital_rounded,
-                          size: 14, color: TriageStatus.critical.color),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$critCount CRITICAL',
-                        style: TextStyle(
-                            color: TriageStatus.critical.color,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ],
+    final survivorCount = peers.length + (myLoc != null ? 1 : 0);
+    final sosCount = peers.where((p) =>
+        p.triageStatus == TriageStatus.sos || p.isSOS).length;
+
+    if (!_tileProviderReady) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF0D0D1A),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Color(0xFF00FF88)),
+              SizedBox(height: 16),
+              Text('Loading offline maps…',
+                  style: TextStyle(color: Colors.white70)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0D0D1A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Text('Live Survivor Map',
+            style: TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(28),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.people, size: 14, color: Colors.orange),
+                const SizedBox(width: 4),
+                Text(
+                  '$survivorCount survivor${survivorCount == 1 ? '' : 's'}',
+                  style: const TextStyle(color: Colors.orange, fontSize: 12),
                 ),
-              ),
+                if (sosCount > 0) ...[
+                  const SizedBox(width: 16),
+                  Icon(Icons.warning_rounded,
+                      size: 14, color: TriageStatus.sos.color),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$sosCount TRAPPED',
+                    style: TextStyle(
+                        color: TriageStatus.sos.color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ],
+                if (zones.isNotEmpty) ...[
+                  const SizedBox(width: 16),
+                  const Icon(Icons.warning_amber, size: 14, color: Colors.yellow),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${zones.length} hazard${zones.length == 1 ? '' : 's'}',
+                    style: const TextStyle(color: Colors.yellow, fontSize: 12),
+                  ),
+                ],
+              ],
             ),
           ),
-          body: myLoc == null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_isAcquiring) ...
-                        [
-                          const CircularProgressIndicator(color: Colors.orange),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Acquiring locationâ€¦',
-                            style: TextStyle(color: Colors.grey, fontSize: 16),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Make sure location services are enabled.',
-                            style: TextStyle(color: Colors.grey, fontSize: 12),
-                          ),
-                        ]
-                      else ...
-                        [
-                          const Icon(Icons.location_off, color: Colors.orange, size: 48),
-                          const SizedBox(height: 16),
-                          Text(
-                            _locationError ?? 'Location unavailable.',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.grey, fontSize: 14),
-                          ),
-                          const SizedBox(height: 20),
-                          ElevatedButton.icon(
-                            onPressed: _acquireLocation,
-                            icon: const Icon(Icons.my_location),
-                            label: const Text('Retry'),
-                          ),
-                        ],
-                    ],
-                  ),
-                )
-              : Stack(
-                  children: [
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onScaleStart: (_) {
-                        _zoomStart = _zoom;
-                      },
-                      onScaleUpdate: (details) {
+        ),
+      ),
+      body: Stack(
+              children: [
+                FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: _mapCenter(myLoc),
+                    initialZoom: 16.0,
+                    minZoom: 14.0,
+                    maxZoom: 18.0,
+                    onLongPress: (tapPos, point) =>
+                        _onLongPress(context, point, service, dangerService),
+                    onMapEvent: (event) {
+                      if (event is MapEventMoveStart &&
+                          event.source != MapEventSource.mapController) {
+                        // User panned manually — stop auto-follow
+                        _followLocation = false;
+                      }
+                      if (event is MapEventMove) {
                         setState(() {
-                          _zoom = (_zoomStart * details.scale).clamp(_minZoom, _maxZoom);
+                          _currentZoom = event.camera.zoom;
+                          _mapCenterDisplay = event.camera.center;
                         });
-                      },
-                      onTapUp: (details) => _onMapTap(details, myLoc, peers),
-                      child: AnimatedBuilder(
-                        animation: _pulseController,
-                        builder: (context, _) {
-                          return CustomPaint(
-                            painter: _MeshMapPainter(
-                              myLocation: myLoc,
-                              peers: peers,
-                              pulseValue: _pulseController.value,
-                              heading: _heading,
-                              myTriageStatus: service.myTriageStatus,
-                              zoom: _zoom,
-                            ),
-                            child: const SizedBox.expand(),
-                          );
-                        },
+                      }
+                    },
+                  ),
+                  children: [
+                    // Layer 1: Tiles — MBTiles (fully offline) or cached network
+                    ColorFiltered(
+                      colorFilter: const ColorFilter.matrix(<double>[
+                        1.2, 0,   0,   0, -20,
+                        0,   1.2, 0,   0, -20,
+                        0,   0,   1.1, 0, -10,
+                        0,   0,   0,   1,  0,
+                      ]),
+                      child: TileLayer(
+                        tileProvider: _tileProvider.isAvailable
+                            ? _tileProvider
+                            : (_fallbackProvider ?? _tileProvider),
+                        errorTileCallback: (tile, error, stackTrace) {},
                       ),
                     ),
-                    Positioned(
-                      right: 12,
-                      top: 12,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Zoom ${_zoom.toStringAsFixed(1)}x',
-                              style: const TextStyle(color: Colors.white, fontSize: 11),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 28,
-                                  height: 28,
-                                  child: OutlinedButton(
-                                    onPressed: () => _changeZoom(-0.4),
-                                    style: OutlinedButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      side: const BorderSide(color: Colors.white54),
-                                    ),
-                                    child: const Icon(Icons.remove, size: 16, color: Colors.white),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                SizedBox(
-                                  width: 28,
-                                  height: 28,
-                                  child: OutlinedButton(
-                                    onPressed: () => _changeZoom(0.4),
-                                    style: OutlinedButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      side: const BorderSide(color: Colors.white54),
-                                    ),
-                                    child: const Icon(Icons.add, size: 16, color: Colors.white),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+
+                    // Layer 2: Mesh edges — only when GPS fix is available
+                    if (myLoc != null)
+                      PolylineLayer(
+                        polylines: _buildMeshEdges(myLoc, peers),
                       ),
-                    ),
-                    // Triage legend (bottom-right)
-                    Positioned(
-                      bottom: 72,
-                      right: 12,
-                      child: _TriageLegend(),
-                    ),
-                    Positioned(
-                      left: 12,
-                      bottom: 72,
-                      child: _NearbyDistancePanel(
-                        myLocation: myLoc,
-                        peers: peers,
+
+                    // Layer 3: Building labels — only at zoom >= 15
+                    if (_currentZoom >= 15)
+                      const BuildingLabelLayer(),
+
+                    // Layer 4: Survivor markers — only when GPS fix is available
+                    if (myLoc != null)
+                      MarkerLayer(
+                        markers: _buildSurvivorMarkers(myLoc, peers),
                       ),
+
+                    // Layer 5: Danger zone markers
+                    MarkerLayer(
+                      markers: _buildDangerMarkers(zones),
                     ),
-                    // Selected peer navigation panel
-                    if (_selectedPeer != null)
-                      Positioned(
-                        left: 12,
-                        right: 12,
-                        top: 12,
-                        child: _NavigatePanel(
-                          peer: _selectedPeer!,
-                          myLocation: myLoc,
-                          onNavigate: () {
-                            final peer = _selectedPeer!;
-                            setState(() => _selectedPeer = null);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => NavigateScreen(target: peer),
-                              ),
-                            );
-                          },
-                          onDismiss: () => setState(() => _selectedPeer = null),
-                        ),
-                      ),
                   ],
                 ),
-          floatingActionButton: FloatingActionButton.small(
-            backgroundColor: Colors.orange,
-            onPressed: _isAcquiring ? null : _acquireLocation,
-            tooltip: 'Broadcast my location now',
-            child: _isAcquiring
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
+
+                // ── Tile source chip (top-right) ──────────────────────────
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A2E).withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  )
-                : const Icon(Icons.my_location, color: Colors.white),
-          ),
-        );
-      },
-    );
-  }
-
-  double _distanceMeters(LocationUpdate? a, LocationUpdate b) {
-    if (a == null) return 0;
-    const earthRadius = 6371000.0;
-    final dLat = (b.latitude - a.latitude) * pi / 180.0;
-    final dLon = (b.longitude - a.longitude) * pi / 180.0;
-    final lat1 = a.latitude * pi / 180.0;
-    final lat2 = b.latitude * pi / 180.0;
-    final h = sin(dLat / 2) * sin(dLat / 2) +
-        cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2);
-    final c = 2 * atan2(sqrt(h), sqrt(1 - h));
-    return earthRadius * c;
-  }
-
-  void _onMapTap(TapUpDetails details, LocationUpdate myLoc, List<LocationUpdate> peers) {
-    final size = (context.findRenderObject() as RenderBox).size;
-    // Account for AppBar offset by using local position from the GestureDetector
-    final tapPos = details.localPosition;
-    const baseViewRange = 0.005;
-    final viewRange = baseViewRange / _zoom;
-    final scale = size.width / (2 * viewRange);
-    final lonScale = scale * cos(myLoc.latitude * pi / 180);
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-
-    const hitRadius = 30.0;
-    LocationUpdate? hit;
-    double bestDist = hitRadius;
-
-    for (final peer in peers) {
-      final dx = (peer.longitude - myLoc.longitude) * lonScale;
-      final dy = (myLoc.latitude - peer.latitude) * scale;
-      final peerPos = Offset(cx + dx, cy + dy);
-      final dist = (peerPos - tapPos).distance;
-      if (dist < bestDist) {
-        bestDist = dist;
-        hit = peer;
-      }
-    }
-
-    setState(() => _selectedPeer = hit);
-  }
-}
-
-class _MeshMapPainter extends CustomPainter {
-  final LocationUpdate myLocation;
-  final List<LocationUpdate> peers;
-  final double pulseValue;
-  final double heading; // degrees clockwise from north
-  final TriageStatus myTriageStatus;
-  final double zoom;
-
-  // Base visible radius in degrees (~555 m each side at equator)
-  static const double _baseViewRange = 0.005;
-
-  _MeshMapPainter({
-    required this.myLocation,
-    required this.peers,
-    required this.pulseValue,
-    required this.heading,
-    required this.myTriageStatus,
-    required this.zoom,
-  });
-
-  double get _viewRange => _baseViewRange / zoom;
-
-  Offset _toCanvas(Size size, double lat, double lon) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final scale = size.width / (2 * _viewRange);
-    // Longitude compression at current latitude
-    final lonScale = scale * cos(myLocation.latitude * pi / 180);
-
-    final dx = (lon - myLocation.longitude) * lonScale;
-    final dy = (myLocation.latitude - lat) * scale; // lat up = y down
-    return Offset(cx + dx, cy + dy);
-  }
-
-  void _drawDot({
-    required Canvas canvas,
-    required Offset center,
-    required Color color,
-    required double radius,
-    required String label,
-    double pulseRadius = 0,
-    Color? pulseColor,
-  }) {
-    // Pulse ring for SOS
-    if (pulseRadius > 0 && pulseColor != null) {
-      canvas.drawCircle(
-        center,
-        pulseRadius,
-        Paint()
-          ..color = pulseColor.withValues(alpha: 0.4 * (1 - pulseRadius / 28))
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-    }
-
-    // Shadow
-    canvas.drawCircle(
-      center,
-      radius + 3,
-      Paint()..color = Colors.black38,
-    );
-
-    // Fill
-    canvas.drawCircle(center, radius, Paint()..color = color);
-
-    // Label
-    final tp = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          shadows: [Shadow(blurRadius: 3, color: Colors.black)],
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(
-      canvas,
-      Offset(center.dx - tp.width / 2, center.dy + radius + 3),
-    );
-  }
-
-  double _distanceMetersToPeer(LocationUpdate peer) {
-    const earthRadius = 6371000.0;
-    final dLat = (peer.latitude - myLocation.latitude) * pi / 180.0;
-    final dLon = (peer.longitude - myLocation.longitude) * pi / 180.0;
-    final lat1 = myLocation.latitude * pi / 180.0;
-    final lat2 = peer.latitude * pi / 180.0;
-    final h = sin(dLat / 2) * sin(dLat / 2) +
-        cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2);
-    final c = 2 * atan2(sqrt(h), sqrt(1 - h));
-    return earthRadius * c;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Background
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = const Color(0xFF1A1A2E),
-    );
-
-    // Grid lines (every 0.001 deg â‰ˆ 100 m)
-    final gridPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.05)
-      ..strokeWidth = 0.5;
-    final scale = size.width / (2 * _viewRange);
-    const gridStep = 0.001;
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-
-    for (var i = -5; i <= 5; i++) {
-      final x = cx + i * gridStep * scale;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-      final y = cy + i * gridStep * scale;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    // Scale bar (bottom-left)
-    final metersAcross = _viewRange * 2 * 111000;
-    final targetBarMeters = metersAcross * 0.22;
-    final barMeters = _pickNiceDistance(targetBarMeters);
-    final barPx = barMeters / metersAcross * size.width;
-    final barY = size.height - 24.0;
-    final barX = 20.0;
-    final barPaint = Paint()
-      ..color = Colors.white70
-      ..strokeWidth = 2;
-    canvas.drawLine(Offset(barX, barY), Offset(barX + barPx, barY), barPaint);
-    canvas.drawLine(Offset(barX, barY - 4), Offset(barX, barY + 4), barPaint);
-    canvas.drawLine(Offset(barX + barPx, barY - 4),
-        Offset(barX + barPx, barY + 4), barPaint);
-    final scaleTp = TextPainter(
-      text: TextSpan(
-        text: _formatDistanceLabel(barMeters),
-        style: const TextStyle(color: Colors.white70, fontSize: 10),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    scaleTp.paint(canvas, Offset(barX + barPx / 2 - scaleTp.width / 2, barY + 6));
-
-    // Peer dots â€” coloured by triage status
-    for (final peer in peers) {
-      final pos = _toCanvas(size, peer.latitude, peer.longitude);
-      if (pos.dx < -30 ||
-          pos.dx > size.width + 30 ||
-          pos.dy < -30 ||
-          pos.dy > size.height + 30) {
-        continue;
-      }
-      final isAlert = peer.triageStatus == TriageStatus.sos || peer.isSOS;
-      final dotColor = peer.triageStatus.color;
-      final pulseR = isAlert ? 10.0 + pulseValue * 18.0 : 0.0;
-      final distText = _formatDistanceLabel(_distanceMetersToPeer(peer));
-
-      final centerPoint = Offset(size.width / 2, size.height / 2);
-      canvas.drawLine(
-        centerPoint,
-        pos,
-        Paint()
-          ..color = Colors.white24
-          ..strokeWidth = 1,
-      );
-
-      _drawDot(
-        canvas: canvas,
-        center: pos,
-        color: dotColor,
-        radius: 8,
-        label: '${peer.userName}\n$distText',
-        pulseRadius: pulseR,
-        pulseColor: TriageStatus.sos.color,
-      );
-    }
-
-    // My arrow (always on center, rotates with heading)
-    _drawArrow(
-      canvas: canvas,
-      center: Offset(size.width / 2, size.height / 2),
-      headingDeg: heading,
-    );
-
-    // Compass rose (top-left) â€” needle points to true north
-    final compassCenter = const Offset(36, 48);
-    _drawCompassRose(canvas, compassCenter, heading);
-  }
-
-  @override
-  bool shouldRepaint(_MeshMapPainter old) =>
-      old.pulseValue != pulseValue ||
-      old.peers.length != peers.length ||
-      old.myLocation.latitude != myLocation.latitude ||
-      old.heading != heading ||
-      old.myTriageStatus != myTriageStatus ||
-      old.zoom != zoom;
-
-  double _pickNiceDistance(double meters) {
-    if (meters <= 0) return 10;
-    const nice = [
-      5.0,
-      10.0,
-      20.0,
-      50.0,
-      100.0,
-      200.0,
-      500.0,
-      1000.0,
-      2000.0,
-      5000.0,
-    ];
-    for (final v in nice) {
-      if (v >= meters) return v;
-    }
-    return nice.last;
-  }
-
-  String _formatDistanceLabel(double meters) {
-    if (meters >= 1000) {
-      final km = meters / 1000;
-      return km % 1 == 0 ? '${km.toStringAsFixed(0)} km' : '${km.toStringAsFixed(1)} km';
-    }
-    return '${meters.toStringAsFixed(0)} m';
-  }
-
-  /// Draws a teardrop/chevron arrow centred at [center], pointing toward
-  /// [headingDeg] degrees clockwise from north (up on the map).
-  void _drawArrow({
-    required Canvas canvas,
-    required Offset center,
-    required double headingDeg,
-  }) {
-    // Convert heading to canvas rotation:
-    // heading 0 (north) = up = -Y axis on canvas
-    // rotate canvas by headingDeg so our "up" arrow points the right way
-    final rad = headingDeg * pi / 180;
-
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(rad);
-
-    // Glow / accuracy circle
-    canvas.drawCircle(
-      Offset.zero,
-      22,
-      Paint()..color = Colors.blueAccent.withValues(alpha: 0.15),
-    );
-
-    // Arrow body (pointing up = north when heading=0)
-    final arrowPath = Path()
-      ..moveTo(0, -16)        // tip
-      ..lineTo(10, 10)        // right base
-      ..lineTo(0, 5)          // center notch
-      ..lineTo(-10, 10)       // left base
-      ..close();
-
-    // Shadow
-    canvas.drawPath(
-      arrowPath.shift(const Offset(1.5, 1.5)),
-      Paint()..color = Colors.black38,
-    );
-
-    // Fill: front half blue, rear half lighter to give 3-D sense
-    canvas.drawPath(arrowPath, Paint()..color = Colors.blueAccent);
-
-    // Centre dot
-    canvas.drawCircle(
-      Offset.zero,
-      4,
-      Paint()..color = Colors.white,
-    );
-
-    canvas.restore();
-
-    // "You" label below the arrow
-    final tp = TextPainter(
-      text: const TextSpan(
-        text: 'You',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          shadows: [Shadow(blurRadius: 3, color: Colors.black)],
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy + 20));
-  }
-
-  /// Draws a compass rose whose needle always points to geographic north,
-  /// compensating for the device's current [headingDeg].
-  void _drawCompassRose(Canvas canvas, Offset center, double headingDeg) {
-    final rad = headingDeg * pi / 180;
-
-    // Outer ring
-    canvas.drawCircle(
-      center,
-      22,
-      Paint()..color = Colors.white.withValues(alpha: 0.12),
-    );
-    canvas.drawCircle(
-      center,
-      22,
-      Paint()
-        ..color = Colors.white24
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    // Rotate the needle opposite to heading so it always points to true north
-    canvas.rotate(-rad);
-
-    // North needle (red)
-    canvas.drawPath(
-      Path()
-        ..moveTo(0, -15)
-        ..lineTo(4, 0)
-        ..lineTo(0, 3)
-        ..lineTo(-4, 0)
-        ..close(),
-      Paint()..color = Colors.red,
-    );
-
-    // South needle (white/grey)
-    canvas.drawPath(
-      Path()
-        ..moveTo(0, 15)
-        ..lineTo(4, 0)
-        ..lineTo(0, -3)
-        ..lineTo(-4, 0)
-        ..close(),
-      Paint()..color = Colors.white54,
-    );
-
-    // Centre pin
-    canvas.drawCircle(Offset.zero, 3, Paint()..color = Colors.white);
-
-    canvas.restore();
-
-    // "N" label above the rose
-    final nTp = TextPainter(
-      text: const TextSpan(
-        text: 'N',
-        style: TextStyle(
-          color: Colors.red,
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    nTp.paint(
-      canvas,
-      Offset(center.dx - nTp.width / 2, center.dy - 38),
-    );
-  }
-}
-
-// â”€â”€â”€ Triage colour legend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-class _TriageLegend extends StatelessWidget {
-  const _TriageLegend();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: TriageStatus.values.map((s) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: s.color,
-                    shape: BoxShape.circle,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _tileProvider.isAvailable
+                              ? Icons.offline_bolt
+                              : Icons.wifi_rounded,
+                          size: 11,
+                          color: _tileProvider.isAvailable
+                              ? const Color(0xFF00FF88)
+                              : Colors.blue,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _tileProvider.isAvailable ? 'MBTiles' : 'Online',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 10),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  s.label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+
+                // ── GPS status chip — shown when no fix yet ──────────────
+                if (myLoc == null || _isAcquiring)
+                  Positioned(
+                    bottom: 136,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1A2E).withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: Colors.orange.withValues(alpha: 0.6)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_isAcquiring)
+                            const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 1.5, color: Colors.orange),
+                            )
+                          else
+                            const Icon(Icons.location_off,
+                                size: 12, color: Colors.orange),
+                          const SizedBox(width: 6),
+                          Text(
+                            _isAcquiring
+                                ? 'Getting GPS…'
+                                : (_locationError ?? 'No GPS fix'),
+                            style: const TextStyle(
+                                color: Colors.orange, fontSize: 11),
+                          ),
+                          if (!_isAcquiring) ...[  
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: _acquireLocation,
+                              child: const Text('Retry',
+                                  style: TextStyle(
+                                      color: Colors.orange,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      decoration:
+                                          TextDecoration.underline)),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Legend (top-left)
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: _buildLegend(zones.isNotEmpty),
+                ),
+
+                // Coordinates display (bottom-left) — updates as map pans
+                Positioned(
+                  bottom: 8,
+                  left: 8,
+                  child: _CoordinatesOverlay(
+                    center: _mapCenterDisplay,
+                    myLoc: myLoc,
+                    distanceM: Provider.of<NearbyService>(context,
+                            listen: false)
+                        .totalDistanceTraveled,
+                  ),
+                ),
+
+                // Recenter / follow-me FAB
+                Positioned(
+                  bottom: 24,
+                  right: 16,
+                  child: FloatingActionButton.small(
+                    backgroundColor: _followLocation
+                        ? const Color(0xFF00FF88)
+                        : const Color(0xFF1A1A2E),
+                    onPressed: () {
+                      setState(() => _followLocation = true);
+                      final loc = Provider.of<NearbyService>(context,
+                              listen: false)
+                          .myLocation;
+                      if (loc != null &&
+                          (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+                        _mapController.move(
+                            LatLng(loc.latitude, loc.longitude),
+                            _currentZoom);
+                      }
+                    },
+                    child: Icon(
+                      Icons.my_location,
+                      color: _followLocation
+                          ? const Color(0xFF0D0D1A)
+                          : const Color(0xFF00FF88),
+                    ),
+                  ),
+                ),
+
+                // Refresh location FAB
+                Positioned(
+                  bottom: 80,
+                  right: 16,
+                  child: FloatingActionButton.small(
+                    backgroundColor: Colors.orange,
+                    onPressed: _isAcquiring ? null : _acquireLocation,
+                    child: _isAcquiring
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.refresh, color: Colors.white),
                   ),
                 ),
               ],
             ),
+    );
+  }
+
+  /// Returns the map center: saved GPS > current GPS > VIT default.
+  LatLng _mapCenter(LocationUpdate? loc) {
+    if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+      return LatLng(loc.latitude, loc.longitude);
+    }
+    if (_savedLocation != null) return _savedLocation!;
+    return const LatLng(kVitLat, kVitLng);
+  }
+
+  // ─── Mesh Edge Lines ────────────────────────────────────────────────────────
+
+  List<Polyline> _buildMeshEdges(
+    LocationUpdate myLoc,
+    List<LocationUpdate> peers,
+  ) {
+    final ownPoint = LatLng(myLoc.latitude, myLoc.longitude);
+    return peers.map((peer) {
+      return Polyline(
+        points: [ownPoint, LatLng(peer.latitude, peer.longitude)],
+        color: const Color(0xFF00FF88).withValues(alpha: 0.3),
+        strokeWidth: 1.5,
+        isDotted: true,
+      );
+    }).toList();
+  }
+
+  // ─── Survivor Markers ──────────────────────────────────────────────────────
+
+  List<Marker> _buildSurvivorMarkers(
+    LocationUpdate myLoc,
+    List<LocationUpdate> peers,
+  ) {
+    final markers = <Marker>[];
+
+    // Self — directional arrow colored by own triage status
+    final selfColor = myLoc.triageStatus.color;
+    markers.add(Marker(
+      point: LatLng(myLoc.latitude, myLoc.longitude),
+      width: 64,
+      height: 72,
+      child: _DirectionalMarker(
+        color: selfColor,
+        heading: myLoc.heading,
+        label: 'You',
+        icon: myLoc.triageStatus.icon,
+        isSelf: true,
+      ),
+    ));
+
+    // Peers — directional arrow colored by triage status
+    for (final peer in peers) {
+      final color = peer.triageStatus.color;
+      markers.add(Marker(
+        point: LatLng(peer.latitude, peer.longitude),
+        width: 80,
+        height: 72,
+        child: GestureDetector(
+          onTap: () => _showSurvivorDetail(peer),
+          child: _DirectionalMarker(
+            color: color,
+            heading: peer.heading,
+            label: peer.userName,
+            icon: peer.triageStatus.icon,
+            isSelf: false,
+          ),
+        ),
+      ));
+    }
+
+    return markers;
+  }
+
+  // ─── Danger Zone Markers ───────────────────────────────────────────────────
+
+  List<Marker> _buildDangerMarkers(List<DangerZone> zones) {
+    return zones.map((zone) {
+      return Marker(
+        point: LatLng(zone.latitude, zone.longitude),
+        width: 64,
+        height: 64,
+        child: GestureDetector(
+          onTap: () => _showDangerZoneDetail(zone),
+          child: _DangerZoneMarker(zone: zone),
+        ),
+      );
+    }).toList();
+  }
+
+  // ─── Long Press → Add Danger Zone ─────────────────────────────────────────
+
+  void _onLongPress(
+    BuildContext context,
+    LatLng point,
+    NearbyService service,
+    DangerZoneService dangerService,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A2E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _AddDangerZoneSheet(
+        location: point,
+        onSubmit: (type, description, imageBytes) async {
+          final broadcast = await dangerService.createDangerZone(
+            reportedBy: service.myEndpointId,
+            reportedByName: service.userName,
+            latitude: point.latitude,
+            longitude: point.longitude,
+            type: type,
+            description: description,
+            imageBytes: imageBytes,
           );
-        }).toList(),
+          await service.broadcastDangerZone(broadcast);
+          if (mounted) Navigator.pop(context);
+        },
       ),
     );
   }
-}
 
-class _NearbyDistancePanel extends StatelessWidget {
-  final LocationUpdate? myLocation;
-  final List<LocationUpdate> peers;
+  // ─── Detail Sheets ────────────────────────────────────────────────────────
 
-  const _NearbyDistancePanel({
-    required this.myLocation,
-    required this.peers,
-  });
+  void _showSurvivorDetail(LocationUpdate peer) {
+    final service = Provider.of<NearbyService>(context, listen: false);
+    final myLoc = service.myLocation;
+    final dist = myLoc != null ? _distanceMeters(myLoc, peer) : 0.0;
 
-  @override
-  Widget build(BuildContext context) {
-    if (myLocation == null || peers.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: peer.triageStatus.color,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(peer.triageStatus.icon,
+                  color: peer.triageStatus.onColor, size: 24),
+            ),
+            const SizedBox(height: 12),
+            Text(peer.userName,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(
+              '${peer.triageStatus.label} • ${_distanceLabel(dist)} away',
+              style: TextStyle(color: peer.triageStatus.color, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${peer.latitude.toStringAsFixed(6)}, ${peer.longitude.toStringAsFixed(6)}',
+              style: const TextStyle(
+                  color: Color(0xFF00FF88),
+                  fontSize: 12,
+                  fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => NavigateScreen(target: peer),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.navigation_rounded),
+              label: const Text('Navigate'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: peer.triageStatus.color,
+                foregroundColor: peer.triageStatus.onColor,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
 
-    final nearest = [...peers]
-      ..sort((a, b) => _distanceMeters(myLocation!, a).compareTo(_distanceMeters(myLocation!, b)));
+  void _showDangerZoneDetail(DangerZone zone) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A2E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _DangerZoneDetailSheet(zone: zone),
+    );
+  }
 
-    final show = nearest.take(4).toList();
+  // ─── Legend ────────────────────────────────────────────────────────────────
 
+  Widget _buildLegend(bool hasDanger) {
     return Container(
-      width: 170,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFF1A1A2E).withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Nearest Survivors',
-            style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700),
+          _legendItem(const Color(0xFF00FF88), 'You'),
+          ...TriageStatus.values.map(
+            (s) => _legendItem(s.color, s.label),
           ),
-          const SizedBox(height: 6),
-          ...show.map((p) {
-            final d = _distanceMeters(myLocation!, p);
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Text(
-                '${p.userName}: ${_distanceLabel(d)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: p.triageStatus.color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            );
-          }),
+          if (hasDanger)
+            _legendItem(Colors.yellow, '⚠ Danger Zone'),
+          _legendItem(Colors.white38, 'Long press = pin hazard'),
         ],
       ),
     );
   }
+
+  Widget _legendItem(Color color, String label) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(label,
+                style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          ],
+        ),
+      );
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
   static double _distanceMeters(LocationUpdate a, LocationUpdate b) {
     const earthRadius = 6371000.0;
@@ -880,94 +748,686 @@ class _NearbyDistancePanel extends StatelessWidget {
   static String _distanceLabel(double meters) {
     if (meters >= 1000) {
       final km = meters / 1000;
-      return km >= 10 ? '${km.toStringAsFixed(0)} km' : '${km.toStringAsFixed(1)} km';
+      return km >= 10
+          ? '${km.toStringAsFixed(0)} km'
+          : '${km.toStringAsFixed(1)} km';
     }
     return '${meters.toStringAsFixed(0)} m';
   }
 }
 
-// ─── Navigate-to-survivor panel ───────────────────────────────────────────────
+// ─── Directional Marker Widget ──────────────────────────────────────────────
+//
+// A directional arrow that rotates to show heading, colored by triage status.
+// For self: shows a larger pulsing arrow. For peers: a smaller static arrow.
 
-class _NavigatePanel extends StatelessWidget {
-  final LocationUpdate peer;
-  final LocationUpdate? myLocation;
-  final VoidCallback onNavigate;
-  final VoidCallback onDismiss;
+class _DirectionalMarker extends StatefulWidget {
+  final Color color;
+  final double heading; // degrees from north (0..360)
+  final String label;
+  final IconData icon;
+  final bool isSelf;
 
-  const _NavigatePanel({
-    required this.peer,
-    required this.myLocation,
-    required this.onNavigate,
-    required this.onDismiss,
+  const _DirectionalMarker({
+    required this.color,
+    required this.heading,
+    required this.label,
+    required this.icon,
+    required this.isSelf,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final color = peer.triageStatus.color;
-    final dist = myLocation != null
-        ? _NearbyDistancePanel._distanceMeters(myLocation!, peer)
-        : 0.0;
-    final distLabel = _NearbyDistancePanel._distanceLabel(dist);
+  State<_DirectionalMarker> createState() => _DirectionalMarkerState();
+}
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xEE101828),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
+class _DirectionalMarkerState extends State<_DirectionalMarker>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _pulseCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isSelf) {
+      _pulseCtrl = AnimationController(
+        vsync: this,
+        duration: const Duration(seconds: 2),
+      )..repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final headingRad = widget.heading * 3.14159265 / 180.0;
+    final arrowSize = widget.isSelf ? 36.0 : 28.0;
+
+    Widget arrow = Transform.rotate(
+      angle: headingRad,
+      child: CustomPaint(
+        size: Size(arrowSize, arrowSize),
+        painter: _ArrowPainter(
+          color: widget.color,
+          borderColor: Colors.white,
+        ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(peer.triageStatus.icon,
-                color: peer.triageStatus.onColor, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  peer.userName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
+    );
+
+    // Pulse ring for self
+    if (widget.isSelf && _pulseCtrl != null) {
+      arrow = AnimatedBuilder(
+        animation: _pulseCtrl!,
+        builder: (_, __) {
+          final pulse = _pulseCtrl!.value;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: arrowSize + 12 + pulse * 10,
+                height: arrowSize + 12 + pulse * 10,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: widget.color.withValues(alpha: 0.3 - pulse * 0.25),
+                    width: 2,
                   ),
                 ),
-                Text(
-                  '${peer.triageStatus.label} • $distLabel away',
-                  style: TextStyle(color: color, fontSize: 12),
+              ),
+              Transform.rotate(
+                angle: headingRad,
+                child: CustomPaint(
+                  size: Size(arrowSize, arrowSize),
+                  painter: _ArrowPainter(
+                    color: widget.color,
+                    borderColor: Colors.white,
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: arrowSize + 24,
+          height: arrowSize + 24,
+          child: Center(child: arrow),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          decoration: BoxDecoration(
+            color: Colors.black87,
+            borderRadius: BorderRadius.circular(4),
           ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            onPressed: onNavigate,
-            icon: const Icon(Icons.navigation_rounded, size: 18),
-            label: const Text('Navigate'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: color,
-              foregroundColor: peer.triageStatus.onColor,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+          child: Text(
+            widget.label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+              shadows: [Shadow(blurRadius: 3, color: Colors.black)],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ArrowPainter extends CustomPainter {
+  final Color color;
+  final Color borderColor;
+
+  _ArrowPainter({required this.color, required this.borderColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Arrow pointing UP (north) — Triangle with notched tail
+    final path = ui.Path()
+      ..moveTo(w * 0.5, 0) // tip (north)
+      ..lineTo(w * 0.85, h * 0.75) // right wing
+      ..lineTo(w * 0.5, h * 0.55) // notch center
+      ..lineTo(w * 0.15, h * 0.75) // left wing
+      ..close();
+
+    // White border
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = borderColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // Filled arrow
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.fill,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ArrowPainter oldDelegate) =>
+      color != oldDelegate.color || borderColor != oldDelegate.borderColor;
+}
+
+// ─── Danger Zone Marker Widget ──────────────────────────────────────────────
+
+class _DangerZoneMarker extends StatelessWidget {
+  final DangerZone zone;
+  const _DangerZoneMarker({required this.zone});
+
+  Color get _dangerColor {
+    switch (zone.type) {
+      case DangerType.fire:
+        return Colors.deepOrange;
+      case DangerType.flood:
+        return Colors.blue;
+      case DangerType.collapse:
+        return Colors.grey;
+      case DangerType.gas:
+        return Colors.yellow;
+      case DangerType.electrical:
+        return Colors.amber;
+      case DangerType.blocked:
+        return Colors.brown;
+      case DangerType.other:
+        return Colors.red;
+    }
+  }
+
+  IconData get _dangerIcon {
+    switch (zone.type) {
+      case DangerType.fire:
+        return Icons.local_fire_department;
+      case DangerType.flood:
+        return Icons.water;
+      case DangerType.collapse:
+        return Icons.domain_disabled;
+      case DangerType.gas:
+        return Icons.air;
+      case DangerType.electrical:
+        return Icons.bolt;
+      case DangerType.blocked:
+        return Icons.block;
+      case DangerType.other:
+        return Icons.warning_amber;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Outer ring
+        Container(
+          width: 64,
+          height: 64,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: _dangerColor, width: 3),
+            boxShadow: [
+              BoxShadow(
+                color: _dangerColor.withValues(alpha: 0.4),
+                blurRadius: 8,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+        ),
+
+        // Inner: photo thumbnail or icon fallback
+        ClipOval(
+          child: zone.imageReceived && zone.imageBytes != null
+              ? Image.memory(
+                  zone.imageBytes!,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                )
+              : Container(
+                  width: 56,
+                  height: 56,
+                  color: const Color(0xFF1A1A2E),
+                  child: Icon(_dangerIcon, color: _dangerColor, size: 28),
+                ),
+        ),
+
+        // Loading spinner while chunks arrive
+        if (zone.imageId != null && !zone.imageReceived)
+          Positioned(
+            bottom: 4,
+            right: 4,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: const CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
               ),
             ),
           ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: onDismiss,
-            child: const Icon(Icons.close, color: Colors.white38, size: 20),
+      ],
+    );
+  }
+}
+
+// ─── Danger Zone Detail Sheet ───────────────────────────────────────────────
+
+class _DangerZoneDetailSheet extends StatelessWidget {
+  final DangerZone zone;
+  const _DangerZoneDetailSheet({required this.zone});
+
+  Color get _dangerColor {
+    switch (zone.type) {
+      case DangerType.fire:
+        return Colors.deepOrange;
+      case DangerType.flood:
+        return Colors.blue;
+      default:
+        return Colors.red;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      maxChildSize: 0.9,
+      minChildSize: 0.35,
+      expand: false,
+      builder: (_, scrollController) => SingleChildScrollView(
+        controller: scrollController,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Full photo
+            if (zone.imageReceived && zone.imageBytes != null)
+              ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+                child: Image.memory(
+                  zone.imageBytes!,
+                  width: double.infinity,
+                  height: 240,
+                  fit: BoxFit.cover,
+                ),
+              )
+            else
+              Container(
+                height: 100,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF0D0D1A),
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: const Center(
+                  child: Text('No photo attached',
+                      style: TextStyle(color: Colors.white38)),
+                ),
+              ),
+
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Type badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _dangerColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: _dangerColor.withValues(alpha: 0.5)),
+                    ),
+                    child: Text(
+                      zone.type.label.toUpperCase(),
+                      style: TextStyle(
+                        color: _dangerColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Text(
+                    zone.description,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Reported by ${zone.reportedByName}',
+                    style:
+                        const TextStyle(color: Colors.white54, fontSize: 13),
+                  ),
+                  Text(
+                    _formatTime(zone.timestamp),
+                    style:
+                        const TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D0D1A),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${zone.latitude.toStringAsFixed(6)}, ${zone.longitude.toStringAsFixed(6)}',
+                      style: const TextStyle(
+                        color: Color(0xFF00FF88),
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+
+                  if (zone.imageId != null && !zone.imageReceived)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white38),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Photo receiving over mesh…',
+                            style: TextStyle(
+                                color: Colors.white38, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    return '${diff.inHours}h ago';
+  }
+}
+
+// ─── Add Danger Zone Sheet ──────────────────────────────────────────────────
+
+class _AddDangerZoneSheet extends StatefulWidget {
+  final LatLng location;
+  final Future<void> Function(DangerType, String, Uint8List?) onSubmit;
+  const _AddDangerZoneSheet({required this.location, required this.onSubmit});
+
+  @override
+  State<_AddDangerZoneSheet> createState() => _AddDangerZoneSheetState();
+}
+
+class _AddDangerZoneSheetState extends State<_AddDangerZoneSheet> {
+  DangerType _selectedType = DangerType.collapse;
+  final _descController = TextEditingController();
+  Uint8List? _imageBytes;
+  bool _submitting = false;
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final result = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 60,
+      maxWidth: 800,
+    );
+    if (result != null) {
+      final bytes = await result.readAsBytes();
+      setState(() => _imageBytes = bytes);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: 20,
+        right: 20,
+        top: 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: Colors.yellow, size: 24),
+              const SizedBox(width: 8),
+              const Text('Mark Danger Zone',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+            ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            '${widget.location.latitude.toStringAsFixed(5)}, ${widget.location.longitude.toStringAsFixed(5)}',
+            style: const TextStyle(
+                color: Color(0xFF00FF88), fontSize: 11, fontFamily: 'monospace'),
+          ),
+          const SizedBox(height: 16),
+
+          // Type selector
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: DangerType.values.map((type) {
+              final selected = _selectedType == type;
+              return GestureDetector(
+                onTap: () => setState(() => _selectedType = type),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.red.withValues(alpha: 0.2)
+                        : const Color(0xFF0D0D1A),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: selected ? Colors.red : Colors.white24,
+                    ),
+                  ),
+                  child: Text(
+                    type.label.toUpperCase(),
+                    style: TextStyle(
+                      color: selected ? Colors.red : Colors.white54,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+
+          // Description
+          TextField(
+            controller: _descController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'Describe the hazard…',
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: const Color(0xFF0D0D1A),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Colors.white24),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Colors.white24),
+              ),
+            ),
+            maxLines: 2,
+          ),
+          const SizedBox(height: 12),
+
+          // Photo
+          Row(
+            children: [
+              GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D0D1A),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: _imageBytes != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.memory(_imageBytes!,
+                              fit: BoxFit.cover),
+                        )
+                      : const Icon(Icons.add_a_photo,
+                          color: Colors.white38, size: 28),
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text('Photograph the hazard\n(optional)',
+                  style: TextStyle(color: Colors.white54, fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Submit
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.cell_tower),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: _submitting
+                  ? null
+                  : () async {
+                      if (_descController.text.isEmpty) return;
+                      setState(() => _submitting = true);
+                      await widget.onSubmit(
+                        _selectedType,
+                        _descController.text,
+                        _imageBytes,
+                      );
+                    },
+              label: _submitting
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('Broadcast Danger Zone',
+                      style: TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Coordinates Overlay ────────────────────────────────────────────────────
+
+class _CoordinatesOverlay extends StatelessWidget {
+  final LatLng center;
+  final LocationUpdate? myLoc;
+  final double distanceM;
+
+  const _CoordinatesOverlay({
+    required this.center,
+    required this.myLoc,
+    required this.distanceM,
+  });
+
+  String _distLabel(double m) {
+    if (m < 10) return '';
+    if (m < 1000) return '  ${m.toStringAsFixed(0)} m moved';
+    return '  ${(m / 1000).toStringAsFixed(2)} km moved';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasGps = myLoc != null &&
+        (myLoc!.latitude != 0.0 || myLoc!.longitude != 0.0);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xCC0D0D1A),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${center.latitude.toStringAsFixed(5)}, ${center.longitude.toStringAsFixed(5)}',
+            style: const TextStyle(
+              color: Color(0xFF00FF88),
+              fontSize: 10,
+              fontFamily: 'monospace',
+            ),
+          ),
+          if (hasGps) ...[
+            const SizedBox(height: 2),
+            Text(
+              'GPS: ${myLoc!.latitude.toStringAsFixed(5)}, ${myLoc!.longitude.toStringAsFixed(5)}${_distLabel(distanceM)}',
+              style: const TextStyle(
+                color: Color(0xFF88CCFF),
+                fontSize: 10,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ],
         ],
       ),
     );

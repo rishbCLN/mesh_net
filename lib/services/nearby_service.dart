@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:nearby_connections/nearby_connections.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/device.dart';
 import '../models/location_update.dart';
@@ -14,6 +14,7 @@ import '../models/resource.dart';
 import '../models/roll_call.dart';
 import '../models/triage_status.dart';
 import '../core/constants.dart';
+import 'danger_zone_service.dart';
 import 'storage_service.dart';
 
 class NearbyService extends ChangeNotifier {
@@ -48,6 +49,10 @@ class NearbyService extends ChangeNotifier {
   final Map<String, LocationUpdate> peerLocationsByEndpoint = {};
   bool _isFetchingLocation = false;
   Timer? _locationBroadcastTimer;
+  StreamSubscription<Position>? _positionStreamSub;
+  Position? _lastStreamedPosition;
+  double totalDistanceTraveled = 0.0;
+  double myHeading = 0.0; // compass heading in degrees from GPS
 
   // Triage
   TriageStatus myTriageStatus = TriageStatus.ok;
@@ -179,6 +184,7 @@ class NearbyService extends ChangeNotifier {
         timestamp: DateTime.now(),
         isSOS: status == TriageStatus.sos,
         triageStatus: status,
+        heading: myHeading,
       );
       final payload = Constants.LOC_PREFIX + myLocation!.toJson();
       final bytes = Uint8List.fromList(utf8.encode(payload));
@@ -195,6 +201,9 @@ class NearbyService extends ChangeNotifier {
 
   // Callback for gateway service to react to new peer connections
   Future<void> Function(String peerId, String peerName)? onPeerConnectedCallback;
+
+  /// Danger zone service — set by app.dart after Provider initialization.
+  DangerZoneService? dangerZoneService;
 
   static const _kTimeout = Duration(seconds: 15);
   static const _kMaxRetries = 3;
@@ -306,10 +315,38 @@ class NearbyService extends ChangeNotifier {
     return false;
   }
 
-  void _onEndpointFound(String endpointId, String endpointName, String serviceId) {
-    debugPrint('Endpoint found: $endpointName ($endpointId)');
-    
-    // Add to discovered devices if not already there
+  // ── Connection state machine ────────────────────────────────────────────
+  //
+  // P2P_CLUSTER race condition: both devices discover each other and both
+  // call requestConnection() simultaneously.  The Nearby Connections API
+  // will reject one side (STATUS_ALREADY_CONNECTED_TO_ENDPOINT or
+  // STATUS_ERROR), leaving the device stuck in "discovered".
+  //
+  // Fix:  Deterministic initiator selection — only the device whose
+  // userName is lexicographically smaller initiates the connection.
+  // The other device simply waits; it will receive onConnectionInitiated
+  // from the initiator side and auto-accept.
+  //
+  // Retry with exponential backoff handles transient radio failures.
+
+  final Set<String> _pendingRequests = {};
+  final Map<String, int> _retryCount = {};   // endpointId → attempts so far
+  final Map<String, String> _endpointNames = {}; // endpointId → name cache
+  static const int _kMaxConnRetries = 5;
+
+  void _onEndpointFound(String endpointId, String endpointName, String serviceId) async {
+    debugPrint('[MESH] Endpoint found: $endpointName ($endpointId)');
+
+    // Skip if already connected to this endpoint
+    if (connectedDevices.any((d) => d.id == endpointId)) {
+      debugPrint('[MESH] Already connected to $endpointId, ignoring discovery');
+      return;
+    }
+
+    // Cache the name for later use
+    _endpointNames[endpointId] = endpointName;
+
+    // Add to discovered list if new
     if (!discoveredDevices.any((d) => d.id == endpointId)) {
       discoveredDevices.add(Device(
         id: endpointId,
@@ -319,28 +356,96 @@ class NearbyService extends ChangeNotifier {
       notifyListeners();
     }
 
-    // Auto-request connection
-    _nearby.requestConnection(
-      userName,
-      endpointId,
-      onConnectionInitiated: _onConnectionInitiated,
-      onConnectionResult: _onConnectionResult,
-      onDisconnected: _onDisconnected,
-    );
+    // ── Deterministic initiator: only the "smaller" name initiates ──
+    // This prevents both sides from calling requestConnection simultaneously.
+    // The "larger" name waits — it will receive onConnectionInitiated from
+    // the other side via advertising callbacks.
+    if (userName.compareTo(endpointName) > 0) {
+      debugPrint('[MESH] Waiting for $endpointName to initiate (they have priority)');
+      // Safety net: if the other side never initiates within 8 seconds,
+      // we initiate ourselves (covers the case where peer isn't using
+      // the same tie-breaking logic or is an older version).
+      Future.delayed(const Duration(seconds: 8), () {
+        if (!_isRunning) return;
+        if (connectedDevices.any((d) => d.id == endpointId)) return;
+        if (_pendingRequests.contains(endpointId)) return;
+        debugPrint('[MESH] Safety-net: $endpointName did not initiate, we will try');
+        _initiateConnection(endpointId);
+      });
+      return;
+    }
+
+    // We are the initiator
+    _initiateConnection(endpointId);
+  }
+
+  /// Send a requestConnection to [endpointId] with full guards.
+  Future<void> _initiateConnection(String endpointId) async {
+    if (!_isRunning) return;
+    if (connectedDevices.any((d) => d.id == endpointId)) return;
+    if (_pendingRequests.contains(endpointId)) {
+      debugPrint('[MESH] Request already pending for $endpointId, skipping');
+      return;
+    }
+
+    final attempts = _retryCount[endpointId] ?? 0;
+    if (attempts >= _kMaxConnRetries) {
+      debugPrint('[MESH] Max retries reached for $endpointId, giving up');
+      _retryCount.remove(endpointId);
+      _pendingRequests.remove(endpointId);
+      return;
+    }
+
+    _pendingRequests.add(endpointId);
+    debugPrint('[MESH] requestConnection to $endpointId (attempt ${attempts + 1})');
+
+    try {
+      await _nearby.requestConnection(
+        userName,
+        endpointId,
+        onConnectionInitiated: _onConnectionInitiated,
+        onConnectionResult: _onConnectionResult,
+        onDisconnected: _onDisconnected,
+      );
+    } catch (e) {
+      debugPrint('[MESH] requestConnection error for $endpointId: $e');
+      _pendingRequests.remove(endpointId);
+      _retryCount[endpointId] = attempts + 1;
+
+      // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+      final delaySecs = 2 * (1 << attempts);
+      debugPrint('[MESH] Will retry $endpointId in ${delaySecs}s');
+      Future.delayed(Duration(seconds: delaySecs), () {
+        if (!_isRunning) return;
+        if (connectedDevices.any((d) => d.id == endpointId)) return;
+        if (discoveredDevices.any((d) => d.id == endpointId)) {
+          _initiateConnection(endpointId);
+        }
+      });
+    }
   }
 
   void _onEndpointLost(String? endpointId) {
-    debugPrint('Endpoint lost: $endpointId');
+    debugPrint('[MESH] Endpoint lost: $endpointId');
     if (endpointId != null) {
+      _pendingRequests.remove(endpointId);
+      _retryCount.remove(endpointId);
+      _endpointNames.remove(endpointId);
       discoveredDevices.removeWhere((d) => d.id == endpointId);
       notifyListeners();
     }
   }
 
   void _onConnectionInitiated(String endpointId, ConnectionInfo info) {
-    debugPrint('Connection initiated with: ${info.endpointName} ($endpointId)');
-    
-    // Auto-accept all connections
+    debugPrint('[MESH] Connection initiated with: ${info.endpointName} ($endpointId)');
+
+    // Cache name from ConnectionInfo (more reliable than discovery name)
+    if (info.endpointName.isNotEmpty) {
+      _endpointNames[endpointId] = info.endpointName;
+    }
+
+    // Always accept — both initiator and receiver must accept for the
+    // connection to complete.
     _nearby.acceptConnection(
       endpointId,
       onPayLoadRecieved: _onPayloadReceived,
@@ -348,42 +453,90 @@ class NearbyService extends ChangeNotifier {
   }
 
   void _onConnectionResult(String endpointId, Status status) {
-    debugPrint('Connection result for $endpointId: ${status.toString()}');
-    
+    debugPrint('[MESH] Connection result for $endpointId: ${status.toString()}');
+    _pendingRequests.remove(endpointId);
+
     if (status == Status.CONNECTED) {
-      // Move from discovered to connected
+      // ── SUCCESS ──────────────────────────────────────────────────
+      _retryCount.remove(endpointId);
+
+      // Resolve device name from cache
+      final cachedName = _endpointNames[endpointId];
       final device = discoveredDevices.firstWhere(
         (d) => d.id == endpointId,
         orElse: () => Device(
           id: endpointId,
-          name: 'Unknown',
+          name: cachedName ?? 'Unknown',
           isConnected: false,
         ),
       );
-      
+
       discoveredDevices.removeWhere((d) => d.id == endpointId);
-      
+
       if (!connectedDevices.any((d) => d.id == endpointId)) {
         connectedDevices.add(device.copyWith(isConnected: true));
       }
 
-      // Share my latest location immediately with newly connected peers.
+      // Share location immediately with newly connected peer
       unawaited(startLocationBroadcast());
 
-      // Notify gateway service of new peer (for rescue bridge auto-dump)
+      // Notify gateway service
       onPeerConnectedCallback?.call(endpointId, device.name);
-      
+
       notifyListeners();
-      debugPrint('Connected to ${device.name}. Total connections: ${connectedDevices.length}');
+      debugPrint('[MESH] Connected to ${device.name}. Total: ${connectedDevices.length}');
+    } else {
+      // ── REJECTED / ERROR ─────────────────────────────────────────
+      final attempts = _retryCount[endpointId] ?? 0;
+      _retryCount[endpointId] = attempts + 1;
+
+      if (attempts + 1 >= _kMaxConnRetries) {
+        debugPrint('[MESH] Connection to $endpointId permanently failed after ${attempts + 1} attempts');
+        _retryCount.remove(endpointId);
+        return;
+      }
+
+      // Exponential backoff retry
+      final delaySecs = 2 * (1 << attempts);
+      debugPrint('[MESH] Connection to $endpointId failed ($status), retry in ${delaySecs}s');
+      Future.delayed(Duration(seconds: delaySecs), () {
+        if (!_isRunning) return;
+        if (connectedDevices.any((d) => d.id == endpointId)) return;
+        if (discoveredDevices.any((d) => d.id == endpointId)) {
+          _initiateConnection(endpointId);
+        }
+      });
     }
   }
 
   void _onDisconnected(String endpointId) {
-    debugPrint('Disconnected from: $endpointId');
+    debugPrint('[MESH] Disconnected from: $endpointId');
+    _pendingRequests.remove(endpointId);
+    _retryCount.remove(endpointId);
+    final disconnectedDevice = connectedDevices.firstWhere(
+      (d) => d.id == endpointId,
+      orElse: () => Device(id: endpointId, name: _endpointNames[endpointId] ?? 'Unknown', isConnected: false),
+    );
     connectedDevices.removeWhere((d) => d.id == endpointId);
-    discoveredDevices.removeWhere((d) => d.id == endpointId);
     peerLocationsByEndpoint.remove(endpointId);
+
+    // Move back to discovered so we can reconnect
+    if (!discoveredDevices.any((d) => d.id == endpointId)) {
+      discoveredDevices.add(Device(
+        id: endpointId,
+        name: disconnectedDevice.name,
+        isConnected: false,
+      ));
+    }
     notifyListeners();
+
+    // Auto-reconnect after a short delay
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!_isRunning) return;
+      if (connectedDevices.any((d) => d.id == endpointId)) return;
+      debugPrint('[MESH] Auto-reconnecting to ${disconnectedDevice.name}');
+      _initiateConnection(endpointId);
+    });
   }
 
   void _onPayloadReceived(String endpointId, Payload payload) async {
@@ -402,6 +555,18 @@ class NearbyService extends ChangeNotifier {
     // Handle resource broadcast
     if (data.startsWith(Constants.RES_PREFIX)) {
       _handleResourcePacket(endpointId, data.substring(Constants.RES_PREFIX.length));
+      return;
+    }
+
+    // Handle danger zone metadata
+    if (data.startsWith(Constants.DANGER_PREFIX)) {
+      _handleDangerPacket(endpointId, data);
+      return;
+    }
+
+    // Handle danger zone image chunk
+    if (data.startsWith(Constants.DIMG_PREFIX)) {
+      _handleDangerImagePacket(endpointId, data);
       return;
     }
 
@@ -608,9 +773,16 @@ class NearbyService extends ChangeNotifier {
     try { await _nearby.stopAllEndpoints(); } catch (_) {}
     _locationBroadcastTimer?.cancel();
     _locationBroadcastTimer = null;
+    _positionStreamSub?.cancel();
+    _positionStreamSub = null;
+    _lastStreamedPosition = null;
+    totalDistanceTraveled = 0.0;
 
     _isRunning = false;
     meshError = null;
+    _pendingRequests.clear();
+    _retryCount.clear();
+    _endpointNames.clear();
     discoveredDevices.clear();
     connectedDevices.clear();
     peerLocations.clear();
@@ -629,6 +801,7 @@ class NearbyService extends ChangeNotifier {
   }
 
   /// Gets current GPS fix, stores it as [myLocation], and broadcasts to peers.
+  /// Also starts a continuous position stream for live movement tracking.
   Future<void> startLocationBroadcast() async {
     if (_isFetchingLocation) return;
     _isFetchingLocation = true;
@@ -660,7 +833,20 @@ class NearbyService extends ChangeNotifier {
           ),
         ).timeout(const Duration(seconds: 15));
       } catch (e) {
-        debugPrint('GPS get position failed, proceeding with 0/0: $e');
+        debugPrint('GPS get position failed: $e');
+      }
+
+      if (position != null) {
+        // Persist so cold-starts restore to last known location
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setDouble('lastLat', position.latitude);
+        await prefs.setDouble('lastLng', position.longitude);
+        _lastStreamedPosition = position;
+      }
+
+      // Update heading from GPS
+      if (position != null && position.heading >= 0) {
+        myHeading = position.heading;
       }
 
       myLocation = LocationUpdate(
@@ -671,21 +857,87 @@ class NearbyService extends ChangeNotifier {
         timestamp: DateTime.now(),
         isSOS: myTriageStatus == TriageStatus.sos,
         triageStatus: myTriageStatus,
+        heading: myHeading,
       );
       notifyListeners();
 
-      // Broadcast to all connected peers
+      // Broadcast initial fix to peers
       final payload = Constants.LOC_PREFIX + myLocation!.toJson();
       final bytes = Uint8List.fromList(utf8.encode(payload));
       for (final device in connectedDevices) {
-        await _nearby.sendBytesPayload(device.id, bytes);
+        try { await _nearby.sendBytesPayload(device.id, bytes); } catch (_) {}
       }
       debugPrint('Location broadcast: ${position?.latitude ?? 0.0}, ${position?.longitude ?? 0.0}');
+
+      // Start continuous position stream for movement tracking
+      _startPositionStream();
     } catch (e) {
       debugPrint('Error broadcasting location: $e');
     } finally {
       _isFetchingLocation = false;
     }
+  }
+
+  /// Subscribes to continuous GPS updates (3 m distanceFilter).
+  /// Each update: moves [myLocation], accumulates [totalDistanceTraveled],
+  /// persists to SharedPreferences, and re-broadcasts to mesh peers.
+  void _startPositionStream() {
+    _positionStreamSub?.cancel();
+    _positionStreamSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3, // only emit when device moves >= 3 m
+      ),
+    ).listen(
+      (position) async {
+        // Accumulate distance
+        if (_lastStreamedPosition != null) {
+          final delta = Geolocator.distanceBetween(
+            _lastStreamedPosition!.latitude,
+            _lastStreamedPosition!.longitude,
+            position.latitude,
+            position.longitude,
+          );
+          totalDistanceTraveled += delta;
+        }
+        _lastStreamedPosition = position;
+
+        // Update heading
+        if (position.heading >= 0) {
+          myHeading = position.heading;
+        }
+
+        // Persist
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setDouble('lastLat', position.latitude);
+          await prefs.setDouble('lastLng', position.longitude);
+        } catch (_) {}
+
+        // Update local state
+        myLocation = LocationUpdate(
+          userId: userName,
+          userName: userName,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          timestamp: DateTime.now(),
+          isSOS: myTriageStatus == TriageStatus.sos,
+          triageStatus: myTriageStatus,
+          heading: myHeading,
+        );
+        notifyListeners();
+
+        // Broadcast movement to connected peers
+        if (_isRunning && connectedDevices.isNotEmpty) {
+          final payload = Constants.LOC_PREFIX + myLocation!.toJson();
+          final bytes = Uint8List.fromList(utf8.encode(payload));
+          for (final device in connectedDevices) {
+            try { await _nearby.sendBytesPayload(device.id, bytes); } catch (_) {}
+          }
+        }
+      },
+      onError: (e) => debugPrint('[GPS stream error] $e'),
+    );
   }
 
   void _rememberMessageId(String id) {
@@ -745,6 +997,75 @@ class NearbyService extends ChangeNotifier {
     for (final d in connectedDevices) {
       if (d.id == fromEndpointId) continue;
       await _nearby.sendBytesPayload(d.id, relayed);
+    }
+  }
+
+  // ── Danger zone packet handlers ───────────────────────────────────────────
+
+  final Set<String> _seenDangerIds = {};
+  final Set<String> _seenDimgChunks = {};
+
+  void _handleDangerPacket(String fromEndpointId, String data) async {
+    final payload = data.substring(Constants.DANGER_PREFIX.length);
+    // Dedup by zone id
+    String? zoneId;
+    try {
+      final json = jsonDecode(payload) as Map<String, dynamic>;
+      zoneId = json['id'] as String?;
+    } catch (_) {
+      return;
+    }
+    if (zoneId == null || _seenDangerIds.contains(zoneId)) return;
+    _seenDangerIds.add(zoneId);
+
+    // Forward to DangerZoneService
+    dangerZoneService?.handleDangerPayload(payload);
+
+    // Relay to other peers
+    final relayBytes = Uint8List.fromList(utf8.encode(data));
+    for (final d in connectedDevices) {
+      if (d.id == fromEndpointId) continue;
+      await _nearby.sendBytesPayload(d.id, relayBytes);
+    }
+  }
+
+  void _handleDangerImagePacket(String fromEndpointId, String data) async {
+    final payload = data.substring(Constants.DIMG_PREFIX.length);
+    // Dedup by imageId + chunkIndex
+    final parts = payload.split('::');
+    if (parts.length < 4) return;
+    final dedupKey = '${parts[0]}::${parts[1]}';
+    if (_seenDimgChunks.contains(dedupKey)) return;
+    _seenDimgChunks.add(dedupKey);
+
+    // Forward to DangerZoneService
+    dangerZoneService?.handleImageChunk(payload);
+
+    // Relay to other peers
+    final relayBytes = Uint8List.fromList(utf8.encode(data));
+    for (final d in connectedDevices) {
+      if (d.id == fromEndpointId) continue;
+      await _nearby.sendBytesPayload(d.id, relayBytes);
+    }
+  }
+
+  /// Broadcast a danger zone (metadata + image chunks) to all peers.
+  Future<void> broadcastDangerZone(DangerZoneBroadcast broadcast) async {
+    // Broadcast metadata first
+    final metaBytes = Uint8List.fromList(
+        utf8.encode(Constants.DANGER_PREFIX + broadcast.metadataPayload));
+    for (final d in connectedDevices) {
+      await _nearby.sendBytesPayload(d.id, metaBytes);
+    }
+
+    // Then image chunks with delay to avoid flooding
+    for (final chunk in broadcast.imageChunkPayloads) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      final chunkBytes = Uint8List.fromList(
+          utf8.encode(Constants.DIMG_PREFIX + chunk));
+      for (final d in connectedDevices) {
+        await _nearby.sendBytesPayload(d.id, chunkBytes);
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
 import 'services/nearby_service.dart';
 import 'services/gateway_service.dart';
+import 'services/danger_zone_service.dart';
 import 'services/storage_service.dart';
 import 'core/theme.dart';
 
@@ -12,8 +13,11 @@ class MeshApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => NearbyService(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => NearbyService()),
+        ChangeNotifierProvider(create: (_) => DangerZoneService()),
+      ],
       child: const _MeshLifecycleRoot(),
     );
   }
@@ -41,9 +45,14 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
 
   void _initGateway() {
     final nearby = Provider.of<NearbyService>(context, listen: false);
+    final dangerZone = Provider.of<DangerZoneService>(context, listen: false);
     final storage = StorageService();
     _gatewayService = GatewayService(storage: storage, nearby: nearby);
     _gatewayService!.initialize();
+
+    // Connect DangerZoneService ↔ NearbyService
+    nearby.dangerZoneService = dangerZone;
+    dangerZone.loadFromStorage();
 
     // Hook peer connection events to gateway
     nearby.onPeerConnectedCallback = (peerId, peerName) async {

@@ -149,7 +149,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                             ),
                             child: Center(
                               child: Text(
-                                _sosSent ? 'âœ“' : 'SOS',
+                                _sosSent ? 'OK' : 'SOS',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 48,

@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 
-// â”€â”€â”€ Data classes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Data classes -------------------------------------------------------------
 
 class _NodeState {
   double x, y;
@@ -13,7 +13,7 @@ class _NodeState {
   _NodeState(this.x, this.y);
 }
 
-// â”€â”€â”€ Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Screen -------------------------------------------------------------------
 
 class TopologyScreen extends StatefulWidget {
   const TopologyScreen({super.key});
@@ -251,7 +251,7 @@ class _TopologyScreenState extends State<TopologyScreen>
   }
 }
 
-// â”€â”€â”€ Stats bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Stats bar ----------------------------------------------------------------
 
 class _StatsBar extends StatelessWidget {
   final NearbyService service;
@@ -296,7 +296,7 @@ class _Chip extends StatelessWidget {
   }
 }
 
-// â”€â”€â”€ Painter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Painter ------------------------------------------------------------------
 
 class _TopologyPainter extends CustomPainter {
   final Map<String, _NodeState> nodes;
@@ -305,7 +305,7 @@ class _TopologyPainter extends CustomPainter {
   final String? tappedNodeId;
   final DateTime now;
 
-  static const _kRelayTTL = 4000; // ms â€” matches NearbyService._kRelayEventTTL
+  static const _kRelayTTL = 4000; // ms -- matches NearbyService._kRelayEventTTL
 
   _TopologyPainter({
     required this.nodes,
@@ -408,7 +408,7 @@ class _TopologyPainter extends CustomPainter {
     for (final event in service.relayEvents) {
       final age = now.difference(event.timestamp).inMilliseconds;
       if (age > _kRelayTTL) continue;
-      final t = age / _kRelayTTL.toDouble(); // 0.0 â†’ 1.0
+      final t = age / _kRelayTTL.toDouble(); // 0.0 -> 1.0
 
       final fromNode = nodes[event.fromId];
       final toNode = nodes[event.toId];
@@ -419,18 +419,18 @@ class _TopologyPainter extends CustomPainter {
 
       final opacity = (1.0 - t).clamp(0.0, 1.0);
 
-      // First half: fromId â†’ me
-      // Second half: me â†’ toId
+      // First half: fromId -> me
+      // Second half: me -> toId
       Offset dotPos;
       if (t < 0.5) {
-        final s = t / 0.5; // 0â†’1
+        final s = t / 0.5; // 0->1
         if (fromNode != null) {
           dotPos = Offset.lerp(Offset(fromNode.x, fromNode.y), meOff, s)!;
         } else {
           dotPos = meOff;
         }
       } else {
-        final s = (t - 0.5) / 0.5; // 0â†’1
+        final s = (t - 0.5) / 0.5; // 0->1
         if (toNode != null) {
           dotPos = Offset.lerp(meOff, Offset(toNode.x, toNode.y), s)!;
         } else {
@@ -538,7 +538,7 @@ class _TopologyPainter extends CustomPainter {
       if (isMe) {
         final tp = TextPainter(
           text: const TextSpan(
-            text: 'â¬¡',
+            text: '*',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -562,7 +562,7 @@ class _TopologyPainter extends CustomPainter {
 
   void _drawLabel(Canvas canvas, String label, Offset pos, double radius,
       Color baseColor, TriageStatus? triage) {
-    final displayLabel = label.length > 10 ? '${label.substring(0, 9)}â€¦' : label;
+    final displayLabel = label.length > 10 ? '${label.substring(0, 9)}...' : label;
     final tp = TextPainter(
       text: TextSpan(
         text: displayLabel,

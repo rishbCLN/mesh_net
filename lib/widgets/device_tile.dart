@@ -57,8 +57,8 @@ class DeviceTile extends StatelessWidget {
             SnackBar(
               content: Text(
                 triage != null
-                    ? '${device.name} â€” ${triage.label}: ${triage.description}'
-                    : '${device.name} â€” $statusText',
+                    ? '${device.name} -- ${triage.label}: ${triage.description}'
+                    : '${device.name} -- $statusText',
               ),
               duration: const Duration(seconds: 2),
             ),

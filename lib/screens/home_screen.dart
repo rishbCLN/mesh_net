@@ -69,10 +69,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     }
 
-    // Fire mesh init in the background â€” UI should not wait for it
+    // Fire mesh init in the background -- UI should not wait for it
     if (mounted) {
       final nearbyService = Provider.of<NearbyService>(context, listen: false);
-      // Do NOT await â€” set initialized immediately so the screen loads
+      // Do NOT await -- set initialized immediately so the screen loads
       nearbyService.init(userName).catchError((e) {
         debugPrint('NearbyService init error: $e');
       });
@@ -194,9 +194,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   builder: (context, child) {
                     return Opacity(
                       opacity: 0.5 + (_pulseController.value * 0.5),
-                      child: const Text(
-                        'ðŸ”´',
-                        style: TextStyle(fontSize: 20),
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: nearbyService.connectedDevices.isEmpty
+                              ? Colors.red
+                              : Colors.green,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     );
                   },
@@ -238,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     children: [
                       CircularProgressIndicator(),
                       SizedBox(height: 16),
-                      Text('Starting mesh servicesâ€¦',
+                      Text('Starting mesh services...',
                           style: TextStyle(color: Colors.grey)),
                     ],
                   ),
@@ -294,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ),
                         ),
-                      // â”€â”€ My Triage Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // -- My Triage Status ------------------------------
                       // Gateway escape status bar
                       const GatewayStatusBar(),
                       const SizedBox(height: 12),
@@ -493,7 +499,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         label: Text(
                           nearbyService.connectedDevices.isEmpty
                               ? 'Roll Call (connect devices first)'
-                              : 'Roll Call  â€¢  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
+                              : 'Roll Call  *  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
                           style: const TextStyle(
                               fontSize: 15, fontWeight: FontWeight.bold),
                         ),
@@ -577,7 +583,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ],
                   ),
                 ),
-              // â”€â”€ Incoming roll call overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // -- Incoming roll call overlay ----------------------------------------
               if (nearbyService.incomingRollCall != null)
                 _RollCallResponderOverlay(
                   rollCall: nearbyService.incomingRollCall!,
@@ -642,7 +648,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 }
 
-// â”€â”€â”€ My Status card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- My Status card ------------------------------------------------------------
 
 class _MyStatusCard extends StatelessWidget {
   final NearbyService service;

@@ -10,4 +10,6 @@ class Constants {
   static const String RES_PREFIX = 'RES::';  // resource broadcast
   static const String GW_PREFIX  = 'GW::';   // gateway system message
   static const String CENSUS_PREFIX = 'CENSUS::'; // rescue bridge census dump
+  static const String DANGER_PREFIX = 'DANGER::'; // danger zone metadata
+  static const String DIMG_PREFIX   = 'DIMG::';   // danger zone image chunk
 }

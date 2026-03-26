@@ -9,6 +9,7 @@ class LocationUpdate {
   final DateTime timestamp;
   final bool isSOS;
   final TriageStatus triageStatus;
+  final double heading; // compass bearing in degrees (0=N, 90=E, etc.)
 
   LocationUpdate({
     required this.userId,
@@ -18,6 +19,7 @@ class LocationUpdate {
     required this.timestamp,
     this.isSOS = false,
     this.triageStatus = TriageStatus.ok,
+    this.heading = 0.0,
   });
 
   String toJson() {
@@ -29,6 +31,7 @@ class LocationUpdate {
       'timestamp': timestamp.toIso8601String(),
       'isSOS': isSOS,
       'triageStatus': triageStatus.jsonValue,
+      'heading': heading,
     });
   }
 
@@ -43,6 +46,7 @@ class LocationUpdate {
       timestamp: DateTime.parse(data['timestamp'] as String),
       isSOS: (data['isSOS'] as bool?) ?? false,
       triageStatus: TriageStatusX.fromJson(data['triageStatus'] as String?),
+      heading: (data['heading'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

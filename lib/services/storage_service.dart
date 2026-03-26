@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../models/danger_zone.dart';
 import '../models/message.dart';
 import '../core/constants.dart';
 
@@ -20,7 +21,7 @@ class StorageService {
     String path = join(await getDatabasesPath(), Constants.DB_NAME);
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE ${Constants.TABLE_MESSAGES} (
@@ -35,6 +36,20 @@ class StorageService {
             originId TEXT NOT NULL DEFAULT ''
           )
         ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS danger_zones (
+            id TEXT PRIMARY KEY,
+            reported_by TEXT NOT NULL,
+            reported_by_name TEXT NOT NULL,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            image_id TEXT,
+            image_bytes BLOB
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -43,6 +58,22 @@ class StorageService {
         }
         if (oldVersion < 3) {
           await db.execute("ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN originId TEXT NOT NULL DEFAULT ''");
+        }
+        if (oldVersion < 4) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS danger_zones (
+              id TEXT PRIMARY KEY,
+              reported_by TEXT NOT NULL,
+              reported_by_name TEXT NOT NULL,
+              latitude REAL NOT NULL,
+              longitude REAL NOT NULL,
+              type TEXT NOT NULL,
+              description TEXT NOT NULL,
+              timestamp INTEGER NOT NULL,
+              image_id TEXT,
+              image_bytes BLOB
+            )
+          ''');
         }
       },
     );
@@ -69,5 +100,20 @@ class StorageService {
   Future<void> clearAll() async {
     final db = await database;
     await db.delete(Constants.TABLE_MESSAGES);
+  }
+
+  Future<void> saveDangerZone(DangerZone zone) async {
+    final db = await database;
+    await db.insert(
+      'danger_zones',
+      zone.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<DangerZone>> getDangerZones() async {
+    final db = await database;
+    final results = await db.query('danger_zones', orderBy: 'timestamp DESC');
+    return results.map((row) => DangerZone.fromMap(row)).toList();
   }
 }
