@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -16,6 +16,7 @@ import '../models/roll_call.dart';
 import '../models/triage_status.dart';
 import '../core/constants.dart';
 import 'danger_zone_service.dart';
+import 'media_message_service.dart';
 import 'storage_service.dart';
 
 class NearbyService extends ChangeNotifier {
@@ -541,6 +542,12 @@ class NearbyService extends ChangeNotifier {
   }
 
   void _onPayloadReceived(String endpointId, Payload payload) async {
+    // ── Handle FILE payloads (media files) ──────────────────────────────
+    if (payload.type == PayloadType.FILE) {
+      _handleIncomingFilePayload(payload);
+      return;
+    }
+
     if (payload.type != PayloadType.BYTES) {
       return;
     }
@@ -552,6 +559,12 @@ class NearbyService extends ChangeNotifier {
 
     final String data = utf8.decode(bytes);
     debugPrint('Received message: $data');
+
+    // Handle media metadata announcement
+    if (data.startsWith(Constants.MEDIA_META_PREFIX)) {
+      _handleMediaMetadata(data.substring(Constants.MEDIA_META_PREFIX.length), payload.id);
+      return;
+    }
 
     // Handle resource broadcast
     if (data.startsWith(Constants.RES_PREFIX)) {
@@ -612,7 +625,23 @@ class NearbyService extends ChangeNotifier {
 
       _rememberMessageId(message.id);
 
-      await _storage.insertMessage(message);
+      // If the message carries base64 media, decode and save to local file
+      Message dbMessage = message;
+      if (message.mediaBase64 != null && message.mediaBase64!.isNotEmpty) {
+        try {
+          final mediaDir = await MediaMessageService.getReceivedMediaDir();
+          final ext = message.mediaType == 'photo' ? 'jpg' : 'ogg';
+          final fileName = '${message.id}.$ext';
+          final destPath = '$mediaDir/$fileName';
+          final decoded = base64Decode(message.mediaBase64!);
+          await File(destPath).writeAsBytes(decoded);
+          dbMessage = message.copyWith(mediaPath: destPath);
+        } catch (e) {
+          debugPrint('[MEDIA] Error saving received media: $e');
+        }
+      }
+
+      await _storage.insertMessage(dbMessage);
       notifyListeners();
 
       // Haptic feedback on SOS receive
@@ -657,6 +686,129 @@ class NearbyService extends ChangeNotifier {
     }
   }
 
+  // ── Media file payload handlers ──────────────────────────────────────────
+
+  void _handleMediaMetadata(String jsonStr, int payloadId) {
+    try {
+      final meta = jsonDecode(jsonStr) as Map<String, dynamic>;
+      _pendingMediaMeta[payloadId] = meta;
+      debugPrint('[MEDIA] Stored metadata for payload $payloadId: ${meta['type']}');
+    } catch (e) {
+      debugPrint('[MEDIA] Error parsing media metadata: $e');
+    }
+  }
+
+  void _handleIncomingFilePayload(Payload payload) async {
+    // Nearby Connections delivers the file with an arbitrary temp path via payload.uri
+    final uri = payload.uri;
+    if (uri == null || uri.isEmpty) {
+      debugPrint('[MEDIA] FILE payload has no uri');
+      return;
+    }
+
+    // Try to find matching metadata (sent just before the file)
+    // The metadata was keyed by the *metadata* payload id. Since we don't know
+    // which metadata corresponds to this file, pop the most recent one that
+    // hasn't been consumed yet. In practice there is only one pending at a time.
+    Map<String, dynamic>? meta;
+    int? metaKey;
+    if (_pendingMediaMeta.isNotEmpty) {
+      metaKey = _pendingMediaMeta.keys.last;
+      meta = _pendingMediaMeta.remove(metaKey);
+    }
+
+    if (meta == null) {
+      debugPrint('[MEDIA] No pending metadata for incoming file payload');
+      return;
+    }
+
+    try {
+      final mediaDir = await MediaMessageService.getReceivedMediaDir();
+      final fileName = meta['fileName'] as String? ?? '${_uuid.v4()}.dat';
+      final destPath = '$mediaDir/$fileName';
+
+      // Move file from temp location to received_media/
+      final sourceFile = File(uri);
+      if (await sourceFile.exists()) {
+        await sourceFile.copy(destPath);
+        await sourceFile.delete();
+      } else {
+        // Try as content URI path — Nearby may return an absolute path
+        final altFile = File(uri.replaceFirst('file://', ''));
+        if (await altFile.exists()) {
+          await altFile.copy(destPath);
+          await altFile.delete();
+        } else {
+          debugPrint('[MEDIA] Source file not found: $uri');
+          return;
+        }
+      }
+
+      final type = meta['type'] as String;
+      final messageId = meta['messageId'] as String;
+      final senderName = meta['senderName'] as String;
+      final senderLat = (meta['senderLat'] as num?)?.toDouble() ?? 0.0;
+      final senderLng = (meta['senderLng'] as num?)?.toDouble() ?? 0.0;
+      final durationSeconds = (meta['durationSeconds'] as int?) ?? 0;
+
+      final contentText = type == 'photo' ? '📷 Photo' : '🎤 Voice (${durationSeconds}s)';
+
+      final message = Message(
+        id: messageId,
+        senderId: senderName,
+        senderName: senderName,
+        content: contentText,
+        timestamp: DateTime.now(),
+        isSOS: false,
+        hopCount: 0,
+        maxHops: 3,
+        originId: messageId,
+        mediaType: type,
+        mediaPath: destPath,
+        senderLat: senderLat,
+        senderLng: senderLng,
+      );
+
+      if (!_seenMessageIds.contains(message.id)) {
+        _rememberMessageId(message.id);
+        await _storage.insertMessage(message);
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('[MEDIA] Error handling file payload: $e');
+    }
+  }
+
+  /// Send a media file (photo or audio) to all connected peers.
+  /// Reads the file, base64-encodes it, and sends as a bytes payload
+  /// inside the Message JSON — same proven path as broadcastImageMessage.
+  Future<void> broadcastMediaFile({
+    required String filePath,
+    required String metadataJson,
+    required Message localMessage,
+  }) async {
+    _rememberMessageId(localMessage.id);
+    await _storage.insertMessage(localMessage);
+
+    // Read file and base64-encode for wire transfer
+    final fileBytes = await File(filePath).readAsBytes();
+    final b64 = base64Encode(fileBytes);
+
+    // Create wire message with mediaBase64 (no local path)
+    final wireMessage = localMessage.copyWith(mediaBase64: b64);
+    final payloadBytes = Uint8List.fromList(utf8.encode(wireMessage.toJson()));
+
+    for (final device in connectedDevices) {
+      try {
+        await _nearby.sendBytesPayload(device.id, payloadBytes);
+      } catch (e) {
+        debugPrint('[MEDIA] Error sending to ${device.id}: $e');
+      }
+    }
+
+    notifyListeners();
+  }
+
   Future<void> sendMessage(String endpointId, String content) async {
     final id = _uuid.v4();
     final message = Message(
@@ -669,6 +821,8 @@ class NearbyService extends ChangeNotifier {
       hopCount: 0,
       maxHops: 5,
       originId: id,
+      senderLat: myLocation?.latitude,
+      senderLng: myLocation?.longitude,
     );
 
     _rememberMessageId(message.id);
@@ -695,6 +849,8 @@ class NearbyService extends ChangeNotifier {
       hopCount: 0,
       maxHops: 5,
       originId: id,
+      senderLat: myLocation?.latitude,
+      senderLng: myLocation?.longitude,
     );
 
     _rememberMessageId(message.id);
@@ -752,6 +908,8 @@ class NearbyService extends ChangeNotifier {
       isSOS: true,
       hopCount: 0,
       originId: id,
+      senderLat: myLocation?.latitude,
+      senderLng: myLocation?.longitude,
     );
 
     _rememberMessageId(message.id);
@@ -1084,6 +1242,9 @@ class NearbyService extends ChangeNotifier {
 
   final Set<String> _seenDangerIds = {};
   final Set<String> _seenDimgChunks = {};
+
+  // ── Pending media file payloads (keyed by Nearby payload id) ──────────
+  final Map<int, Map<String, dynamic>> _pendingMediaMeta = {};
 
   void _handleDangerPacket(String fromEndpointId, String data) async {
     final payload = data.substring(Constants.DANGER_PREFIX.length);

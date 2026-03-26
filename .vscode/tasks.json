@@ -1,0 +1,55 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "flutter pub get",
+			"type": "shell",
+			"command": "flutter pub get"
+		},
+		{
+			"label": "flutter analyze",
+			"type": "shell",
+			"command": "flutter analyze"
+		},
+		{
+			"label": "flutter analyze",
+			"type": "shell",
+			"command": "flutter analyze"
+		},
+		{
+			"label": "flutter build apk --debug",
+			"type": "shell",
+			"command": "flutter build apk --debug"
+		},
+		{
+			"label": "flutter pub get",
+			"type": "shell",
+			"command": "flutter pub get"
+		},
+		{
+			"label": "flutter analyze",
+			"type": "shell",
+			"command": "flutter analyze"
+		},
+		{
+			"label": "flutter build apk --debug",
+			"type": "shell",
+			"command": "flutter build apk --debug"
+		},
+		{
+			"label": "flutter build apk --release",
+			"type": "shell",
+			"command": "flutter build apk --release"
+		},
+		{
+			"label": "flutter analyze",
+			"type": "shell",
+			"command": "flutter analyze"
+		},
+		{
+			"label": "flutter build apk --release",
+			"type": "shell",
+			"command": "flutter build apk --release"
+		}
+	]
+}

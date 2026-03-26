@@ -12,4 +12,5 @@ class Constants {
   static const String CENSUS_PREFIX = 'CENSUS::'; // rescue bridge census dump
   static const String DANGER_PREFIX = 'DANGER::'; // danger zone metadata
   static const String DIMG_PREFIX   = 'DIMG::';   // danger zone image chunk
+  static const String MEDIA_META_PREFIX = 'MMETA::'; // media file metadata
 }

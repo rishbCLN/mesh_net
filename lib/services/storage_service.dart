@@ -21,7 +21,7 @@ class StorageService {
     String path = join(await getDatabasesPath(), Constants.DB_NAME);
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE ${Constants.TABLE_MESSAGES} (
@@ -33,7 +33,11 @@ class StorageService {
             isSOS INTEGER NOT NULL,
             hopCount INTEGER NOT NULL DEFAULT 0,
             maxHops INTEGER NOT NULL DEFAULT 5,
-            originId TEXT NOT NULL DEFAULT ''
+            originId TEXT NOT NULL DEFAULT '',
+            mediaType TEXT,
+            mediaPath TEXT,
+            senderLat REAL,
+            senderLng REAL
           )
         ''');
         await db.execute('''
@@ -74,6 +78,20 @@ class StorageService {
               image_bytes BLOB
             )
           ''');
+        }
+        if (oldVersion < 5) {
+          try {
+            await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN mediaType TEXT');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN mediaPath TEXT');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN senderLat REAL');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE ${Constants.TABLE_MESSAGES} ADD COLUMN senderLng REAL');
+          } catch (_) {}
         }
       },
     );

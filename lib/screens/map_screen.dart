@@ -14,6 +14,7 @@ import '../map/mbtiles_tile_provider.dart';
 import '../map/cached_tile_provider.dart';
 import '../map/building_label_layer.dart';
 import '../services/danger_zone_service.dart';
+import '../services/map_routing_service.dart';
 import '../services/nearby_service.dart';
 import 'navigate_screen.dart';
 
@@ -43,6 +44,9 @@ class _MapScreenState extends State<MapScreen> {
 
   // Auto-follow: map center tracks self when true; panning disables it
   bool _followLocation = true;
+
+  // Route path to a selected survivor (null when no route shown)
+  List<LatLng>? _routePath;
 
   // Used to detect when location changes so we auto-move
   LocationUpdate? _prevMyLoc;
@@ -304,6 +308,19 @@ class _MapScreenState extends State<MapScreen> {
                         polylines: _buildMeshEdges(myLoc, peers),
                       ),
 
+                    // Layer 2b: Route path to selected survivor
+                    if (_routePath != null && _routePath!.length >= 2)
+                      PolylineLayer(
+                        polylines: [
+                          Polyline(
+                            points: _routePath!,
+                            color: const Color(0xFF00BFFF),
+                            strokeWidth: 4.0,
+                            isDotted: false,
+                          ),
+                        ],
+                      ),
+
                     // Layer 3: Building labels — only at zoom >= 15
                     if (_currentZoom >= 15)
                       const BuildingLabelLayer(),
@@ -437,7 +454,10 @@ class _MapScreenState extends State<MapScreen> {
                         ? const Color(0xFF00FF88)
                         : const Color(0xFF1A1A2E),
                     onPressed: () {
-                      setState(() => _followLocation = true);
+                      setState(() {
+                        _followLocation = true;
+                        _routePath = null;
+                      });
                       final loc = Provider.of<NearbyService>(context,
                               listen: false)
                           .myLocation;
@@ -665,6 +685,19 @@ class _MapScreenState extends State<MapScreen> {
                 foregroundColor: peer.triageStatus.onColor,
               ),
             ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _showRouteToSurvivor(peer);
+              },
+              icon: const Icon(Icons.route_rounded),
+              label: const Text('Show Safe Route'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF00BFFF),
+                side: const BorderSide(color: Color(0xFF00BFFF)),
+              ),
+            ),
             const SizedBox(height: 16),
           ],
         ),
@@ -682,6 +715,25 @@ class _MapScreenState extends State<MapScreen> {
       ),
       builder: (_) => _DangerZoneDetailSheet(zone: zone),
     );
+  }
+
+  void _showRouteToSurvivor(LocationUpdate peer) {
+    final service = Provider.of<NearbyService>(context, listen: false);
+    final myLoc = service.myLocation;
+    if (myLoc == null) return;
+
+    final dangerService = Provider.of<DangerZoneService>(context, listen: false);
+    final zones = dangerService.zones.values.toList();
+
+    final route = MapRoutingService.findRoute(
+      start: LatLng(myLoc.latitude, myLoc.longitude),
+      end: LatLng(peer.latitude, peer.longitude),
+      dangerZones: zones,
+    );
+
+    setState(() {
+      _routePath = route;
+    });
   }
 
   // ─── Legend ────────────────────────────────────────────────────────────────

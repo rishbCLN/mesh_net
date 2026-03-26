@@ -1,0 +1,6 @@
+[
+  { "name": "SJT Building", "lat": 12.8406, "lng": 80.1534, "radiusMeters": 60 },
+  { "name": "Main Gate", "lat": 12.8401, "lng": 80.1528, "radiusMeters": 40 },
+  { "name": "Admin Block", "lat": 12.8415, "lng": 80.1540, "radiusMeters": 50 },
+  { "name": "Library", "lat": 12.8390, "lng": 80.1545, "radiusMeters": 45 }
+]

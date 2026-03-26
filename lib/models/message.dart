@@ -11,6 +11,11 @@ class Message {
   final int maxHops;
   final String originId;
   final String? imageBase64;
+  final String? mediaType;
+  final String? mediaPath;
+  final String? mediaBase64;
+  final double? senderLat;
+  final double? senderLng;
 
   Message({
     required this.id,
@@ -23,6 +28,11 @@ class Message {
     int? maxHops,
     String? originId,
     this.imageBase64,
+    this.mediaType,
+    this.mediaPath,
+    this.mediaBase64,
+    this.senderLat,
+    this.senderLng,
   })  : hopCount = hopCount,
         // SOS messages always have maxHops forced to 10
         maxHops = isSOS ? 10 : (maxHops ?? 5),
@@ -39,6 +49,11 @@ class Message {
     int? maxHops,
     String? originId,
     String? imageBase64,
+    String? mediaType,
+    String? mediaPath,
+    String? mediaBase64,
+    double? senderLat,
+    double? senderLng,
   }) {
     final resolvedIsSOS = isSOS ?? this.isSOS;
     return Message(
@@ -52,11 +67,16 @@ class Message {
       maxHops: maxHops ?? this.maxHops,
       originId: originId ?? this.originId,
       imageBase64: imageBase64 ?? this.imageBase64,
+      mediaType: mediaType ?? this.mediaType,
+      mediaPath: mediaPath ?? this.mediaPath,
+      mediaBase64: mediaBase64 ?? this.mediaBase64,
+      senderLat: senderLat ?? this.senderLat,
+      senderLng: senderLng ?? this.senderLng,
     );
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'id': id,
       'senderId': senderId,
       'senderName': senderName,
@@ -67,6 +87,11 @@ class Message {
       'maxHops': maxHops,
       'originId': originId,
     };
+    if (mediaType != null) map['mediaType'] = mediaType;
+    if (mediaPath != null) map['mediaPath'] = mediaPath;
+    if (senderLat != null) map['senderLat'] = senderLat;
+    if (senderLng != null) map['senderLng'] = senderLng;
+    return map;
   }
 
   factory Message.fromMap(Map<String, dynamic> map) {
@@ -87,6 +112,10 @@ class Message {
       hopCount: (map['hopCount'] as int?) ?? 0,
       maxHops: (map['maxHops'] as int?) ?? (parsedIsSOS ? 10 : 5),
       originId: (map['originId'] as String?) ?? parsedId,
+      mediaType: map['mediaType'] as String?,
+      mediaPath: map['mediaPath'] as String?,
+      senderLat: (map['senderLat'] as num?)?.toDouble(),
+      senderLng: (map['senderLng'] as num?)?.toDouble(),
     );
   }
 
@@ -103,6 +132,10 @@ class Message {
       'originId': originId,
     };
     if (imageBase64 != null) map['imageBase64'] = imageBase64;
+    if (mediaType != null) map['mediaType'] = mediaType;
+    if (mediaBase64 != null) map['mediaBase64'] = mediaBase64;
+    if (senderLat != null) map['senderLat'] = senderLat;
+    if (senderLng != null) map['senderLng'] = senderLng;
     return jsonEncode(map);
   }
 
@@ -119,6 +152,10 @@ class Message {
       maxHops: (data['maxHops'] as int?) ?? ((data['isSOS'] as bool) ? 10 : 5),
       originId: (data['originId'] as String?) ?? (data['id'] as String),
       imageBase64: data['imageBase64'] as String?,
+      mediaType: data['mediaType'] as String?,
+      mediaBase64: data['mediaBase64'] as String?,
+      senderLat: (data['senderLat'] as num?)?.toDouble(),
+      senderLng: (data['senderLng'] as num?)?.toDouble(),
     );
   }
 }
