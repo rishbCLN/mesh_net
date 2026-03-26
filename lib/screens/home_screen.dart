@@ -18,7 +18,6 @@ import 'resources_screen.dart';
 import 'roll_call_screen.dart';
 import 'sos_screen.dart';
 import 'topology_screen.dart';
-import 'triage_assistant_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -502,30 +501,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               : 'Roll Call  *  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
                           style: const TextStyle(
                               fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      // AI Triage Assistant button
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.smart_toy_rounded),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const TriageAssistantScreen(),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 52),
-                          backgroundColor: const Color(0xFF0D1F23),
-                          foregroundColor: Colors.cyanAccent,
-                          side: const BorderSide(color: Colors.cyanAccent, width: 1),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        label: const Text(
-                          'AI Triage Assistant',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                       ),
                       const SizedBox(height: 12),

@@ -20,33 +20,33 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   List<Message> messages = [];
   Timer? _refreshTimer;
-
-  int _msgCount = 0;
+  NearbyService? _nearbyRef;
 
   @override
   void initState() {
     super.initState();
     _loadMessages();
-    
+
     // Refresh messages every 2 seconds as fallback
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _loadMessages();
     });
+
+    // Register a direct listener so new messages appear the instant
+    // NearbyService notifies (peer messages, own sent messages, etc.)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _nearbyRef = Provider.of<NearbyService>(context, listen: false);
+      _nearbyRef!.addListener(_onServiceChanged);
+    });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final nearby = Provider.of<NearbyService>(context);
-    // Fast refresh when a new message is tracked by the service
-    if (nearby.totalMessages != _msgCount) {
-      _msgCount = nearby.totalMessages;
-      _loadMessages();
-    }
+  void _onServiceChanged() {
+    _loadMessages();
   }
 
   @override
   void dispose() {
+    _nearbyRef?.removeListener(_onServiceChanged);
     _refreshTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
@@ -64,17 +64,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   Future<void> _sendMessage() async {

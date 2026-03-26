@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -32,7 +31,6 @@ class _MapScreenState extends State<MapScreen> {
   bool _tileProviderReady = false;
   bool _isAcquiring = false;
   String? _locationError;
-  Timer? _refreshTimer;
   double _currentZoom = 16.0;
   LatLng _mapCenterDisplay = const LatLng(kVitLat, kVitLng);
 
@@ -54,9 +52,7 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _initTileProvider();
     _loadSavedLocation();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (mounted) setState(() {});
-    });
+    // Removed the 5-second setState timer — map updates via NearbyService listener
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _acquireLocation();
       // Listen to NearbyService so map auto-follows GPS updates
@@ -149,7 +145,6 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
     // Remove NearbyService listener
     final service =
         Provider.of<NearbyService>(context, listen: false);
@@ -747,12 +742,9 @@ class _MapScreenState extends State<MapScreen> {
 
   static String _distanceLabel(double meters) {
     if (meters >= 1000) {
-      final km = meters / 1000;
-      return km >= 10
-          ? '${km.toStringAsFixed(0)} km'
-          : '${km.toStringAsFixed(1)} km';
+      return '${(meters / 1000).toStringAsFixed(2)} km';
     }
-    return '${meters.toStringAsFixed(0)} m';
+    return '${meters.toStringAsFixed(1)} m';
   }
 }
 
@@ -1389,9 +1381,9 @@ class _CoordinatesOverlay extends StatelessWidget {
   });
 
   String _distLabel(double m) {
-    if (m < 10) return '';
-    if (m < 1000) return '  ${m.toStringAsFixed(0)} m moved';
-    return '  ${(m / 1000).toStringAsFixed(2)} km moved';
+    if (m < 1) return '';
+    if (m < 1000) return '  ${m.toStringAsFixed(1)} m moved';
+    return '  ${(m / 1000).toStringAsFixed(3)} km moved';
   }
 
   @override

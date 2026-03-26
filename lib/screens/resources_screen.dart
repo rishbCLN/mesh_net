@@ -78,11 +78,6 @@ class _OfferTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Resources currently being offered by ME
-    final myOffers = service.peerResources.values
-        .where((r) => r.userId == service.userName && r.isOffering)
-        .toList();
-
     // Resources NEEDED by others on the mesh
     final othersNeeds = service.peerResources.values
         .where((r) => r.userId != service.userName && !r.isOffering)
@@ -104,7 +99,6 @@ class _OfferTab extends StatelessWidget {
         _ResourceGrid(
           service: service,
           isOffering: true,
-          activeTypes: myOffers.map((r) => r.resourceType).toSet(),
         ),
         if (othersNeeds.isNotEmpty) ...[
           const SizedBox(height: 24),
@@ -137,11 +131,6 @@ class _NeedTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Resources currently being requested by ME
-    final myNeeds = service.peerResources.values
-        .where((r) => r.userId == service.userName && !r.isOffering)
-        .toList();
-
     // Resources OFFERED by others on the mesh
     final othersOffers = service.peerResources.values
         .where((r) => r.userId != service.userName && r.isOffering)
@@ -163,7 +152,6 @@ class _NeedTab extends StatelessWidget {
         _ResourceGrid(
           service: service,
           isOffering: false,
-          activeTypes: myNeeds.map((r) => r.resourceType).toSet(),
         ),
         if (othersOffers.isNotEmpty) ...[
           const SizedBox(height: 24),
@@ -189,60 +177,108 @@ class _NeedTab extends StatelessWidget {
 
 // ─── Resource selection grid ─────────────────────────────────────────────────
 
-class _ResourceGrid extends StatelessWidget {
+class _ResourceGrid extends StatefulWidget {
   final NearbyService service;
   final bool isOffering;
-  final Set<ResourceType> activeTypes;
 
   const _ResourceGrid({
     required this.service,
     required this.isOffering,
-    required this.activeTypes,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: ResourceType.values.map((type) {
-        final isActive = activeTypes.contains(type);
-        return _ResourceChip(
-          type: type,
-          isActive: isActive,
-          onTap: () => _broadcast(context, type),
-        );
-      }).toList(),
-    );
-  }
+  State<_ResourceGrid> createState() => _ResourceGridState();
+}
 
-  Future<void> _broadcast(BuildContext context, ResourceType type) async {
-    final myLoc = service.myLocation;
-    final resource = ResourceBroadcast(
-      userId: service.userName,
-      userName: service.userName,
-      resourceType: type,
-      isOffering: isOffering,
-      latitude: myLoc?.latitude ?? 0.0,
-      longitude: myLoc?.longitude ?? 0.0,
-      timestamp: DateTime.now(),
-    );
-    await service.broadcastResource(resource);
-    HapticFeedback.mediumImpact();
+class _ResourceGridState extends State<_ResourceGrid> {
+  // Locally selected (pending) types — NOT yet broadcast
+  final Set<ResourceType> _pending = {};
+
+  Future<void> _confirm(BuildContext context) async {
+    if (_pending.isEmpty) return;
+    final types = Set<ResourceType>.from(_pending);
+    setState(() => _pending.clear()); // reset chips immediately
+
+    for (final type in types) {
+      final myLoc = widget.service.myLocation;
+      final resource = ResourceBroadcast(
+        userId: widget.service.userName,
+        userName: widget.service.userName,
+        resourceType: type,
+        isOffering: widget.isOffering,
+        latitude: myLoc?.latitude ?? 0.0,
+        longitude: myLoc?.longitude ?? 0.0,
+        timestamp: DateTime.now(),
+      );
+      await widget.service.broadcastResource(resource);
+    }
+    HapticFeedback.heavyImpact();
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isOffering
-                ? '${type.emoji} Offering ${type.label} — broadcast to mesh'
-                : '${type.emoji} Requesting ${type.label} — broadcast to mesh',
+            widget.isOffering
+                ? 'Broadcast: offering ${types.length} resource${types.length == 1 ? '' : 's'} to mesh'
+                : 'Broadcast: requesting ${types.length} resource${types.length == 1 ? '' : 's'} from mesh',
           ),
           duration: const Duration(seconds: 2),
-          backgroundColor: isOffering ? Colors.green.shade800 : Colors.orange.shade800,
+          backgroundColor: widget.isOffering
+              ? Colors.green.shade800
+              : Colors.orange.shade800,
         ),
       );
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: ResourceType.values.map((type) {
+            final isSelected = _pending.contains(type);
+            return _ResourceChip(
+              type: type,
+              isActive: isSelected,
+              onTap: () {
+                setState(() {
+                  if (isSelected) {
+                    _pending.remove(type);
+                  } else {
+                    _pending.add(type);
+                  }
+                });
+              },
+            );
+          }).toList(),
+        ),
+        if (_pending.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () => _confirm(context),
+            icon: const Icon(Icons.send_rounded),
+            label: Text(
+              widget.isOffering
+                  ? 'Broadcast — I have ${_pending.length} resource${_pending.length == 1 ? '' : 's'}'
+                  : 'Broadcast — I need ${_pending.length} resource${_pending.length == 1 ? '' : 's'}',
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.isOffering
+                  ? Colors.green.shade800
+                  : Colors.orange.shade800,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              textStyle: const TextStyle(
+                  fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 

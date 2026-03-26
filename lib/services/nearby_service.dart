@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -776,6 +777,7 @@ class NearbyService extends ChangeNotifier {
     _positionStreamSub?.cancel();
     _positionStreamSub = null;
     _lastStreamedPosition = null;
+    _distSinceLastSave = 0.0;
     totalDistanceTraveled = 0.0;
 
     _isRunning = false;
@@ -792,10 +794,18 @@ class NearbyService extends ChangeNotifier {
 
   void _startLocationHeartbeat() {
     _locationBroadcastTimer?.cancel();
-    _locationBroadcastTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
-      if (!_isRunning || _isFetchingLocation) return;
+    // Heartbeat: re-broadcast current location every 10 s.
+    // Does NOT restart the GPS stream — the stream runs continuously.
+    _locationBroadcastTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (!_isRunning) return;
+      final loc = myLocation;
+      if (loc == null || connectedDevices.isEmpty) return;
       try {
-        await startLocationBroadcast();
+        final payload = Constants.LOC_PREFIX + loc.toJson();
+        final bytes = Uint8List.fromList(utf8.encode(payload));
+        for (final device in connectedDevices) {
+          try { await _nearby.sendBytesPayload(device.id, bytes); } catch (_) {}
+        }
       } catch (_) {}
     });
   }
@@ -826,21 +836,46 @@ class NearbyService extends ChangeNotifier {
       }
 
       Position? position;
+
+      // Start the position stream immediately — don't wait for getCurrentPosition.
+      // This way the map starts receiving live GPS updates right away.
+      if (_positionStreamSub == null) {
+        _startPositionStream();
+      }
+
+      // Show last-known position instantly while waiting for a fresh fix
+      try {
+        position = await Geolocator.getLastKnownPosition();
+      } catch (_) {}
+      if (position != null) {
+        if (position.heading >= 0) myHeading = position.heading;
+        _lastStreamedPosition = position;
+        myLocation = LocationUpdate(
+          userId: userName,
+          userName: userName,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          timestamp: DateTime.now(),
+          isSOS: myTriageStatus == TriageStatus.sos,
+          triageStatus: myTriageStatus,
+          heading: myHeading,
+        );
+        notifyListeners();
+      }
+
+      // Get a fresh fix (high accuracy, 8 s cap — faster than 'best')
       try {
         position = await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.best,
+            accuracy: LocationAccuracy.high,
           ),
-        ).timeout(const Duration(seconds: 15));
+        ).timeout(const Duration(seconds: 8));
       } catch (e) {
-        debugPrint('GPS get position failed: $e');
+        debugPrint('GPS fresh fix failed: $e');
+        // Keep last-known position if fresh fix times out
       }
 
       if (position != null) {
-        // Persist so cold-starts restore to last known location
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setDouble('lastLat', position.latitude);
-        await prefs.setDouble('lastLng', position.longitude);
         _lastStreamedPosition = position;
       }
 
@@ -849,28 +884,36 @@ class NearbyService extends ChangeNotifier {
         myHeading = position.heading;
       }
 
-      myLocation = LocationUpdate(
-        userId: userName,
-        userName: userName,
-        latitude: position?.latitude ?? 0.0,
-        longitude: position?.longitude ?? 0.0,
-        timestamp: DateTime.now(),
-        isSOS: myTriageStatus == TriageStatus.sos,
-        triageStatus: myTriageStatus,
-        heading: myHeading,
-      );
-      notifyListeners();
+      if (position != null) {
+        myLocation = LocationUpdate(
+          userId: userName,
+          userName: userName,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          timestamp: DateTime.now(),
+          isSOS: myTriageStatus == TriageStatus.sos,
+          triageStatus: myTriageStatus,
+          heading: myHeading,
+        );
+        notifyListeners();
 
-      // Broadcast initial fix to peers
-      final payload = Constants.LOC_PREFIX + myLocation!.toJson();
-      final bytes = Uint8List.fromList(utf8.encode(payload));
-      for (final device in connectedDevices) {
-        try { await _nearby.sendBytesPayload(device.id, bytes); } catch (_) {}
+        // Persist fresh fix
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setDouble('lastLat', position.latitude);
+          await prefs.setDouble('lastLng', position.longitude);
+        } catch (_) {}
       }
-      debugPrint('Location broadcast: ${position?.latitude ?? 0.0}, ${position?.longitude ?? 0.0}');
 
-      // Start continuous position stream for movement tracking
-      _startPositionStream();
+      // Broadcast to peers
+      if (myLocation != null) {
+        final payload = Constants.LOC_PREFIX + myLocation!.toJson();
+        final bytes = Uint8List.fromList(utf8.encode(payload));
+        for (final device in connectedDevices) {
+          try { await _nearby.sendBytesPayload(device.id, bytes); } catch (_) {}
+        }
+        debugPrint('Location broadcast: ${myLocation!.latitude}, ${myLocation!.longitude}');
+      }
     } catch (e) {
       debugPrint('Error broadcasting location: $e');
     } finally {
@@ -878,19 +921,57 @@ class NearbyService extends ChangeNotifier {
     }
   }
 
-  /// Subscribes to continuous GPS updates (3 m distanceFilter).
-  /// Each update: moves [myLocation], accumulates [totalDistanceTraveled],
-  /// persists to SharedPreferences, and re-broadcasts to mesh peers.
+  /// Subscribes to continuous GPS updates.
+  ///
+  /// Android: requests 1-second intervals so updates arrive within ~2 s of movement.
+  /// distanceFilter 3 m: OS-level noise gate — no callback if the fix only
+  /// jumped 1-2 m (GPS atmospheric jitter when stationary).
+  ///
+  /// Speed gate: GPS velocity is far more reliable than position for detecting
+  /// real movement. If position.speed < 0.4 m/s (slow walk threshold) AND speed
+  /// data is available (>= 0), we treat the callback as noise — the device has
+  /// not actually moved — so we skip the position update and distance accumulation.
+  /// Heading is always updated (compass bearing is unrelated to speed).
+  double _distSinceLastSave = 0.0;
+
   void _startPositionStream() {
     _positionStreamSub?.cancel();
+
+    // Request 1-second update interval on Android for fast responsiveness.
+    // On iOS the OS controls the interval; distanceFilter alone is sufficient.
+    final LocationSettings locationSettings = Platform.isAndroid
+        ? AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 3,
+            intervalDuration: const Duration(seconds: 1),
+          )
+        : const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 3,
+          );
+
     _positionStreamSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 3, // only emit when device moves >= 3 m
-      ),
+      locationSettings: locationSettings,
     ).listen(
       (position) async {
-        // Accumulate distance
+        // ── Always update heading (rotation is valid when stationary) ──
+        if (position.heading >= 0) {
+          myHeading = position.heading;
+        }
+
+        // ── Speed gate: skip if GPS shows we are not actually moving ──
+        // position.speed >= 0 means the platform provided speed data.
+        // Below 0.4 m/s (~1.4 km/h) with valid speed = stationary GPS drift.
+        final bool speedAvailable = position.speed >= 0;
+        final bool reallyMoving = !speedAvailable || position.speed >= 0.4;
+
+        if (!reallyMoving) {
+          // Device is stationary — update heading only, don't move the marker
+          notifyListeners();
+          return;
+        }
+
+        // ── Real movement: accumulate distance and update marker ──
         if (_lastStreamedPosition != null) {
           final delta = Geolocator.distanceBetween(
             _lastStreamedPosition!.latitude,
@@ -899,22 +980,21 @@ class NearbyService extends ChangeNotifier {
             position.longitude,
           );
           totalDistanceTraveled += delta;
+          _distSinceLastSave += delta;
         }
         _lastStreamedPosition = position;
 
-        // Update heading
-        if (position.heading >= 0) {
-          myHeading = position.heading;
+        // Persist to SharedPreferences only every 50 m (debounced)
+        if (_distSinceLastSave >= 50.0) {
+          _distSinceLastSave = 0.0;
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setDouble('lastLat', position.latitude);
+            await prefs.setDouble('lastLng', position.longitude);
+          } catch (_) {}
         }
 
-        // Persist
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setDouble('lastLat', position.latitude);
-          await prefs.setDouble('lastLng', position.longitude);
-        } catch (_) {}
-
-        // Update local state
+        // Update local state — notifyListeners before async broadcast
         myLocation = LocationUpdate(
           userId: userName,
           userName: userName,
