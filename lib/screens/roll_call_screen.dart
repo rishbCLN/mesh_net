@@ -1,11 +1,11 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/roll_call.dart';
 import '../services/nearby_service.dart';
 
-// ─── Coordinator Screen ───────────────────────────────────────────────────────
+// â”€â”€â”€ Coordinator Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class RollCallScreen extends StatefulWidget {
   const RollCallScreen({super.key});
@@ -18,7 +18,6 @@ class _RollCallScreenState extends State<RollCallScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
   Timer? _clockTimer;
-  int _secondsLeft = 60;
   bool _starting = false;
 
   @override
@@ -51,8 +50,7 @@ class _RollCallScreenState extends State<RollCallScreen>
     _clockTimer?.cancel();
     if (deadline == null) return;
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final secs = deadline.difference(DateTime.now()).inSeconds;
-      if (mounted) setState(() => _secondsLeft = secs.clamp(0, 60));
+      if (mounted) setState(() {});
     });
   }
 
@@ -87,17 +85,18 @@ class _RollCallScreenState extends State<RollCallScreen>
         final secsLeft = rc.deadline.difference(now).inSeconds.clamp(0, 60);
         final progress = secsLeft / 60.0;
 
-        return WillPopScope(
-          onWillPop: () async {
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
             await _stopAndPop();
-            return false;
           },
           child: Scaffold(
             backgroundColor: const Color(0xFF0D1423),
             appBar: AppBar(
               backgroundColor: const Color(0xFF0D1423),
               title: Text(
-                'Roll Call — Round ${rc.round}',
+                'Roll Call â€” Round ${rc.round}',
                 style: const TextStyle(color: Colors.white),
               ),
               iconTheme: const IconThemeData(color: Colors.white),
@@ -111,7 +110,7 @@ class _RollCallScreenState extends State<RollCallScreen>
             ),
             body: Column(
               children: [
-                // ── Countdown ring + summary ────────────────────────────────
+                // â”€â”€ Countdown ring + summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 Container(
                   color: const Color(0xFF101828),
                   padding: const EdgeInsets.symmetric(vertical: 20),
@@ -184,18 +183,18 @@ class _RollCallScreenState extends State<RollCallScreen>
                 // Auto-repeat notice
                 Container(
                   width: double.infinity,
-                  color: Colors.white.withOpacity(0.04),
+                  color: Colors.white.withValues(alpha: 0.04),
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Text(
                     rc.allResponded
-                        ? '✓ All accounted for — next round in 2 min'
-                        : 'Auto-repeats every 2 min  •  No-response → flagged Unknown',
+                        ? 'âœ“ All accounted for â€” next round in 2 min'
+                        : 'Auto-repeats every 2 min  â€¢  No-response â†’ flagged Unknown',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white38, fontSize: 11),
                   ),
                 ),
 
-                // ── Roster list ─────────────────────────────────────────────
+                // â”€â”€ Roster list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
                   child: Align(
@@ -259,7 +258,7 @@ class _RollCallScreenState extends State<RollCallScreen>
   }
 }
 
-// ─── Ring painter ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Ring painter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _RingPainter extends CustomPainter {
   final double progress;
@@ -278,7 +277,7 @@ class _RingPainter extends CustomPainter {
       Offset(cx, cy),
       radius,
       Paint()
-        ..color = Colors.white.withOpacity(0.08)
+        ..color = Colors.white.withValues(alpha: 0.08)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 6,
     );
@@ -302,7 +301,7 @@ class _RingPainter extends CustomPainter {
       old.progress != progress || old.color != color;
 }
 
-// ─── Roster tile ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Roster tile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _RosterTile extends StatelessWidget {
   final RollCallEntry entry;
@@ -323,10 +322,10 @@ class _RosterTile extends StatelessWidget {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.08 + glowOpacity),
+            color: color.withValues(alpha: 0.08 + glowOpacity),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: color.withOpacity(isNeedHelp ? 0.5 + pulse.value * 0.4 : 0.25),
+              color: color.withValues(alpha: isNeedHelp ? 0.5 + pulse.value * 0.4 : 0.25),
               width: isNeedHelp ? 1.5 : 1,
             ),
           ),
@@ -339,7 +338,7 @@ class _RosterTile extends StatelessWidget {
                   shape: BoxShape.circle,
                   color: color,
                   boxShadow: isNeedHelp
-                      ? [BoxShadow(color: color.withOpacity(0.6), blurRadius: 8)]
+                      ? [BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 8)]
                       : null,
                 ),
               ),
@@ -359,17 +358,17 @@ class _RosterTile extends StatelessWidget {
                   '${entry.respondedAt!.hour.toString().padLeft(2, '0')}:'
                   '${entry.respondedAt!.minute.toString().padLeft(2, '0')}:'
                   '${entry.respondedAt!.second.toString().padLeft(2, '0')}',
-                  style: TextStyle(color: color.withOpacity(0.6), fontSize: 11),
+                  style: TextStyle(color: color.withValues(alpha: 0.6), fontSize: 11),
                 ),
               const SizedBox(width: 8),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.18),
+                  color: color.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(20),
                   border:
-                      Border.all(color: color.withOpacity(0.5), width: 1),
+                      Border.all(color: color.withValues(alpha: 0.5), width: 1),
                 ),
                 child: Text(
                   entry.status.label,
@@ -388,7 +387,7 @@ class _RosterTile extends StatelessWidget {
   }
 }
 
-// ─── Summary widgets ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Summary widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _StatBox extends StatelessWidget {
   final int value;
@@ -445,3 +444,4 @@ class _MiniStat extends StatelessWidget {
     );
   }
 }
+

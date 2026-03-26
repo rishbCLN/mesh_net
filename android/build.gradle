@@ -6,7 +6,7 @@ buildscript {
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.6.0'
+        classpath 'com.android.tools.build:gradle:8.9.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -21,6 +21,19 @@ allprojects {
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
+
+    // Fix for older plugins that don't specify a namespace (e.g. telephony)
+    afterEvaluate {
+        if (project.hasProperty('android') && project.android.namespace == null) {
+            def manifest = file("${project.projectDir}/src/main/AndroidManifest.xml")
+            if (manifest.exists()) {
+                def pkg = new XmlParser().parse(manifest).@package
+                if (pkg) {
+                    project.android.namespace = pkg
+                }
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {

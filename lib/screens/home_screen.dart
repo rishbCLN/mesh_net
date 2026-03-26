@@ -9,12 +9,16 @@ import '../services/nearby_service.dart';
 import '../services/storage_service.dart';
 import '../models/message.dart';
 import '../widgets/device_tile.dart';
+import '../widgets/gateway_status_bar.dart';
 import '../widgets/triage_status_picker.dart';
 import 'chat_screen.dart';
 import 'map_screen.dart';
+import 'report_screen.dart';
+import 'resources_screen.dart';
 import 'roll_call_screen.dart';
 import 'sos_screen.dart';
 import 'topology_screen.dart';
+import 'triage_assistant_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -65,10 +69,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     }
 
-    // Fire mesh init in the background — UI should not wait for it
+    // Fire mesh init in the background â€” UI should not wait for it
     if (mounted) {
       final nearbyService = Provider.of<NearbyService>(context, listen: false);
-      // Do NOT await — set initialized immediately so the screen loads
+      // Do NOT await â€” set initialized immediately so the screen loads
       nearbyService.init(userName).catchError((e) {
         debugPrint('NearbyService init error: $e');
       });
@@ -93,10 +97,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _requestNearbyPermissions() async {
-    // Request Location and Nearby WiFi permissions for mesh networking
+    // Nearby Connections needs Location + WiFi + Bluetooth (BLE for peer discovery)
     final permissions = [
       Permission.location,
       Permission.nearbyWifiDevices,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.bluetoothAdvertise,
     ];
 
     final statuses = await permissions.request();
@@ -112,9 +119,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         builder: (ctx) => AlertDialog(
           title: const Text('Permissions Required'),
           content: const Text(
-            'MeshAlert needs Location and Nearby Wi-Fi permissions '
-            'to discover and communicate with devices around you.\n\n'
-            'Without these permissions the mesh network will not work.',
+            'MeshAlert needs Location, Nearby Wi-Fi, and Bluetooth permissions '
+            'to discover and communicate with nearby devices.\n\n'
+            'Bluetooth is used for initial peer discovery — '
+            'all mesh data travels over WiFi.\n\n'
+            'Also ensure Location Services (GPS) are turned ON.\n\n'
+            'Without these the mesh network will not work.',
           ),
           actions: [
             if (anyPermanentlyDenied)
@@ -185,7 +195,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     return Opacity(
                       opacity: 0.5 + (_pulseController.value * 0.5),
                       child: const Text(
-                        '🔴',
+                        'ðŸ”´',
                         style: TextStyle(fontSize: 20),
                       ),
                     );
@@ -201,8 +211,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: nearbyService.connectedDevices.isEmpty
-                          ? Colors.red.withOpacity(0.2)
-                          : Colors.green.withOpacity(0.2),
+                          ? Colors.red.withValues(alpha: 0.2)
+                          : Colors.green.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -228,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     children: [
                       CircularProgressIndicator(),
                       SizedBox(height: 16),
-                      Text('Starting mesh services…',
+                      Text('Starting mesh servicesâ€¦',
                           style: TextStyle(color: Colors.grey)),
                     ],
                   ),
@@ -284,7 +294,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ),
                         ),
-                      // ── My Triage Status ──────────────────────────────
+                      // â”€â”€ My Triage Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // Gateway escape status bar
+                      const GatewayStatusBar(),
+                      const SizedBox(height: 12),
                       _MyStatusCard(service: nearbyService),
                       const SizedBox(height: 16),
 
@@ -318,17 +331,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                 ...nearbyService.connectedDevices.map(
                                   (device) => DeviceTile(
                                     device: device,
-                                    triageStatus: nearbyService
+                                    triageStatus: (nearbyService
                                         .peerLocations[device.name]
-                                        ?.triageStatus,
+                                        ?.triageStatus),
                                   ),
                                 ),
                               ...nearbyService.discoveredDevices.map(
                                 (device) => DeviceTile(
                                   device: device,
-                                  triageStatus: nearbyService
+                                  triageStatus: (nearbyService
                                       .peerLocations[device.name]
-                                      ?.triageStatus,
+                                      ?.triageStatus),
                                 ),
                               ),
                             ],
@@ -473,23 +486,98 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           minimumSize: const Size(double.infinity, 52),
                           backgroundColor: const Color(0xFF1A0D2E),
                           foregroundColor: Colors.deepPurpleAccent,
-                          disabledForegroundColor: Colors.deepPurpleAccent.withOpacity(0.35),
+                          disabledForegroundColor: Colors.deepPurpleAccent.withValues(alpha: 0.35),
                           side: const BorderSide(color: Colors.deepPurpleAccent, width: 1),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                         label: Text(
                           nearbyService.connectedDevices.isEmpty
                               ? 'Roll Call (connect devices first)'
-                              : 'Roll Call  •  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
+                              : 'Roll Call  â€¢  ${nearbyService.connectedDevices.length} device${nearbyService.connectedDevices.length == 1 ? '' : 's'}',
                           style: const TextStyle(
                               fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      // AI Triage Assistant button
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.smart_toy_rounded),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const TriageAssistantScreen(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 52),
+                          backgroundColor: const Color(0xFF0D1F23),
+                          foregroundColor: Colors.cyanAccent,
+                          side: const BorderSide(color: Colors.cyanAccent, width: 1),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        label: const Text(
+                          'AI Triage Assistant',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Resources button
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.inventory_2_rounded),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ResourcesScreen(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 52),
+                          backgroundColor: const Color(0xFF1A1A0D),
+                          foregroundColor: Colors.amberAccent,
+                          side: const BorderSide(color: Colors.amberAccent, width: 1),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        label: const Text(
+                          'Resources',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Generate Report button
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.assessment_rounded),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ReportScreen(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 52),
+                          backgroundColor: const Color(0xFF0D1A1A),
+                          foregroundColor: Colors.tealAccent,
+                          side: const BorderSide(color: Colors.tealAccent, width: 1),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        label: const Text(
+                          'Generate Report',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Reachable survivors counter
+                      _ReachableCounter(service: nearbyService),
                       const SizedBox(height: 80), // space so content isn't hidden behind SOS bar
                     ],
                   ),
                 ),
-              // ── Incoming roll call overlay ────────────────────────────────────────
+              // â”€â”€ Incoming roll call overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               if (nearbyService.incomingRollCall != null)
                 _RollCallResponderOverlay(
                   rollCall: nearbyService.incomingRollCall!,
@@ -509,7 +597,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.red.withOpacity(0.3 + glow * 0.4),
+                          color: Colors.red.withValues(alpha: 0.3 + glow * 0.4),
                           blurRadius: 12 + glow * 16,
                           spreadRadius: 2 + glow * 4,
                         ),
@@ -554,7 +642,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 }
 
-// ─── My Status card ────────────────────────────────────────────────────────────
+// â”€â”€â”€ My Status card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _MyStatusCard extends StatelessWidget {
   final NearbyService service;
@@ -572,9 +660,9 @@ class _MyStatusCard extends StatelessWidget {
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.6), width: 1.5),
+          border: Border.all(color: color.withValues(alpha: 0.6), width: 1.5),
         ),
         child: Row(
           children: [
@@ -586,7 +674,7 @@ class _MyStatusCard extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: color.withOpacity(0.5),
+                    color: color.withValues(alpha: 0.5),
                     blurRadius: 10,
                     spreadRadius: 2,
                   ),
@@ -621,16 +709,63 @@ class _MyStatusCard extends StatelessWidget {
             ),
             Column(
               children: [
-                Icon(Icons.edit_rounded, size: 16, color: color.withOpacity(0.7)),
+                Icon(Icons.edit_rounded, size: 16, color: color.withValues(alpha: 0.7)),
                 const SizedBox(height: 2),
                 Text(
                   'Change',
-                  style: TextStyle(fontSize: 10, color: color.withOpacity(0.7)),
+                  style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.7)),
                 ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─── Reachable survivors counter ────────────────────────────────────────────
+
+class _ReachableCounter extends StatelessWidget {
+  final NearbyService service;
+
+  const _ReachableCounter({required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    final direct = service.connectedDevices.length;
+    // Estimate: each connected peer may also have ~2 peers (minus us).
+    // Conservative estimate: direct + direct * 1.5 (unique via mesh hops)
+    final estimated = direct + (direct * 1.5).round();
+    final reachable = direct == 0 ? 0 : estimated;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.wifi_tethering_rounded,
+            color: direct > 0 ? Colors.greenAccent : Colors.white24,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Text(
+            direct == 0
+                ? 'No survivors reachable'
+                : '~$reachable survivors reachable via mesh',
+            style: TextStyle(
+              color: direct > 0 ? Colors.white60 : Colors.white24,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -694,7 +829,7 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
       builder: (context, _) {
         final glow = _pulse.value;
         return Material(
-          color: Colors.black.withOpacity(0.88),
+          color: Colors.black.withValues(alpha: 0.88),
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -707,10 +842,10 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                     height: 72,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.deepPurple.withOpacity(0.2 + glow * 0.2),
+                      color: Colors.deepPurple.withValues(alpha: 0.2 + glow * 0.2),
                       border: Border.all(
                         color: Colors.deepPurpleAccent
-                            .withOpacity(0.6 + glow * 0.4),
+                            .withValues(alpha: 0.6 + glow * 0.4),
                         width: 2,
                       ),
                     ),
@@ -746,7 +881,7 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.06),
+                      color: Colors.white.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
@@ -788,12 +923,12 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                     color: Colors.greenAccent
-                                        .withOpacity(0.6),
+                                        .withValues(alpha: 0.6),
                                     width: 2),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.green
-                                        .withOpacity(0.3 + glow * 0.2),
+                                        .withValues(alpha: 0.3 + glow * 0.2),
                                     blurRadius: 16 + glow * 12,
                                   ),
                                 ],
@@ -831,12 +966,12 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                     color:
-                                        Colors.redAccent.withOpacity(0.6),
+                                        Colors.redAccent.withValues(alpha: 0.6),
                                     width: 2),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.red
-                                        .withOpacity(0.3 + glow * 0.3),
+                                        .withValues(alpha: 0.3 + glow * 0.3),
                                     blurRadius: 16 + glow * 16,
                                   ),
                                 ],
@@ -879,3 +1014,4 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
     );
   }
 }
+

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/message.dart';
 
@@ -70,6 +71,32 @@ class MessageBubble extends StatelessWidget {
                 ),
               if (message.isSOS) const SizedBox(height: 6),
               
+              // Inline image
+              if (message.imageBase64 != null && message.imageBase64!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(
+                      base64Decode(message.imageBase64!),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (_, __, ___) => const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.broken_image, color: Colors.white54, size: 20),
+                            SizedBox(width: 6),
+                            Text('Image failed to load',
+                              style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              
               // Message content
               Text(
                 message.content,
@@ -80,13 +107,36 @@ class MessageBubble extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               
-              // Timestamp
-              Text(
-                '${message.timestamp.hour}:${message.timestamp.minute.toString().padLeft(2, '0')}',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 11,
-                ),
+              // Timestamp + hop count
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${message.timestamp.hour}:${message.timestamp.minute.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 11,
+                    ),
+                  ),
+                  if (message.hopCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${message.hopCount} hop${message.hopCount == 1 ? '' : 's'}',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
@@ -95,3 +145,4 @@ class MessageBubble extends StatelessWidget {
     );
   }
 }
+

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../models/device.dart';
 import '../models/triage_status.dart';
 
@@ -31,7 +31,7 @@ class DeviceTile extends StatelessWidget {
             color: connectionColor,
             boxShadow: [
               BoxShadow(
-                color: connectionColor.withOpacity(0.5),
+                color: connectionColor.withValues(alpha: 0.5),
                 blurRadius: 8,
                 spreadRadius: 2,
               ),
@@ -57,8 +57,8 @@ class DeviceTile extends StatelessWidget {
             SnackBar(
               content: Text(
                 triage != null
-                    ? '${device.name} — ${triage.label}: ${triage.description}'
-                    : '${device.name} — $statusText',
+                    ? '${device.name} â€” ${triage.label}: ${triage.description}'
+                    : '${device.name} â€” $statusText',
               ),
               duration: const Duration(seconds: 2),
             ),
@@ -100,3 +100,4 @@ class _TriageBadge extends StatelessWidget {
     );
   }
 }
+

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
@@ -106,7 +106,7 @@ class _TriageCard extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.25) : Colors.white.withOpacity(0.06),
+          color: isSelected ? color.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected ? color : Colors.white12,
@@ -156,3 +156,4 @@ class _TriageCard extends StatelessWidget {
     );
   }
 }
+

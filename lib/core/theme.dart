@@ -9,7 +9,6 @@ class AppTheme {
         primary: Colors.deepOrange,
         secondary: Colors.red,
         surface: const Color(0xFF1E1E1E),
-        background: const Color(0xFF121212),
       ),
       scaffoldBackgroundColor: const Color(0xFF121212),
       appBarTheme: const AppBarTheme(

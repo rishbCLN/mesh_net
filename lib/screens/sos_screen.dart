@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/nearby_service.dart';
+import '../services/gateway_service.dart';
 
 class SosScreen extends StatefulWidget {
   const SosScreen({super.key});
@@ -41,6 +42,14 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
     }
 
     await nearbyService.sendSOS(sosMessage);
+
+    // Fire all gateway escape channels on SOS
+    try {
+      final gateway = Provider.of<GatewayService>(context, listen: false);
+      gateway.hardSOSActivated();
+    } catch (_) {
+      // Gateway may not be initialized yet
+    }
     
     setState(() {
       _sosSent = true;
@@ -82,8 +91,8 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
                       color: nearbyService.connectedDevices.isEmpty
-                          ? Colors.black.withOpacity(0.3)
-                          : Colors.white.withOpacity(0.2),
+                          ? Colors.black.withValues(alpha: 0.3)
+                          : Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: Row(
@@ -132,7 +141,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                               boxShadow: [
                                 BoxShadow(
                                   color: (_sosSent ? Colors.green : Colors.red)
-                                      .withOpacity(0.6),
+                                      .withValues(alpha: 0.6),
                                   blurRadius: 30,
                                   spreadRadius: 10,
                                 ),
@@ -140,7 +149,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                             ),
                             child: Center(
                               child: Text(
-                                _sosSent ? '✓' : 'SOS',
+                                _sosSent ? 'âœ“' : 'SOS',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 48,
@@ -160,7 +169,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.3),
+                        color: Colors.green.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -188,7 +197,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
@@ -208,9 +217,9 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             hintText: 'e.g., Trapped under rubble, 3rd floor',
-                            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
                             filled: true,
-                            fillColor: Colors.white.withOpacity(0.1),
+                            fillColor: Colors.white.withValues(alpha: 0.1),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,
@@ -227,7 +236,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
+                      color: Colors.white.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Column(
@@ -258,3 +267,4 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
     );
   }
 }
+

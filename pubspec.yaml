@@ -16,6 +16,11 @@ dependencies:
   permission_handler: ^11.3.1
   geolocator: ^13.0.0
   flutter_compass: ^0.8.0
+  image_picker: ^1.0.7
+  share_plus: ^7.2.1
+  telephony: ^0.2.0
+  connectivity_plus: ^5.0.0
+  http: ^1.0.0
 
 dev_dependencies:
   flutter_test:

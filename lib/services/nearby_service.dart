@@ -3,12 +3,14 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:nearby_connections/nearby_connections.dart';
 import 'package:uuid/uuid.dart';
 import '../models/device.dart';
 import '../models/location_update.dart';
 import '../models/message.dart';
+import '../models/resource.dart';
 import '../models/roll_call.dart';
 import '../models/triage_status.dart';
 import '../core/constants.dart';
@@ -38,14 +40,21 @@ class NearbyService extends ChangeNotifier {
 
   int _totalMessagesRouted = 0;
   int get totalMessagesRouted => _totalMessagesRouted;
+  int get totalMessages => _seenMessageIds.length;
 
   // Location tracking
   LocationUpdate? myLocation;
   final Map<String, LocationUpdate> peerLocations = {};
+  final Map<String, LocationUpdate> peerLocationsByEndpoint = {};
   bool _isFetchingLocation = false;
+  Timer? _locationBroadcastTimer;
 
   // Triage
   TriageStatus myTriageStatus = TriageStatus.ok;
+
+  // Resources
+  final Map<String, ResourceBroadcast> peerResources = {}; // keyed by 'userId:resourceType:isOffering'
+  final Set<String> _seenResIds = {}; // dedup
 
   // ── Roll Call ────────────────────────────────────────────────────────────
   RollCallSession? activeRollCall;     // non-null only on the coordinator
@@ -184,8 +193,11 @@ class NearbyService extends ChangeNotifier {
     }
   }
 
-  static const _kTimeout = Duration(seconds: 5);
-  static const _kMaxRetries = 2;
+  // Callback for gateway service to react to new peer connections
+  Future<void> Function(String peerId, String peerName)? onPeerConnectedCallback;
+
+  static const _kTimeout = Duration(seconds: 15);
+  static const _kMaxRetries = 3;
 
   Future<void> init(String name) async {
     userName = name;
@@ -193,23 +205,46 @@ class NearbyService extends ChangeNotifier {
     _isRunning = false;
     notifyListeners();
 
-    // Stop any previous session before (re)starting
+    // Stop any previous session completely before (re)starting
+    try { await _nearby.stopAdvertising(); } catch (_) {}
+    try { await _nearby.stopDiscovery(); } catch (_) {}
+    try { await _nearby.stopAllEndpoints(); } catch (_) {}
+    _locationBroadcastTimer?.cancel();
+
+    // Pre-flight: Location Services must be ON for Nearby Connections
+    bool locationOn = false;
     try {
-      await _nearby.stopAdvertising();
-      await _nearby.stopDiscovery();
+      locationOn = await Geolocator.isLocationServiceEnabled();
     } catch (_) {}
+    if (!locationOn) {
+      meshError = 'Location Services are OFF. Please turn on GPS/Location in device settings, then tap Retry.';
+      notifyListeners();
+      return;
+    }
+
+    // Small pause after stopping to let radios reset
+    await Future.delayed(const Duration(milliseconds: 500));
 
     final advOk = await _startAdvertising();
+    // Brief pause between advertising and discovery to avoid radio contention
+    await Future.delayed(const Duration(milliseconds: 300));
     final disOk = await _startDiscovery();
 
     _isRunning = advOk || disOk;
 
     if (!advOk && !disOk) {
-      meshError = 'Could not start mesh (radio error). Tap Retry to try again.';
+      meshError = 'Could not start mesh — ensure WiFi, Bluetooth, and Location are ON, '
+          'and all permissions are granted. Tap Retry.';
     } else if (!advOk) {
       meshError = 'Advertising failed — others may not find this device.';
     } else if (!disOk) {
       meshError = 'Discovery failed — this device may not find others.';
+    }
+
+    if (_isRunning) {
+      // Keep locations fresh so nearby survivors remain visible on the map.
+      _startLocationHeartbeat();
+      unawaited(startLocationBroadcast());
     }
     notifyListeners();
   }
@@ -218,7 +253,7 @@ class NearbyService extends ChangeNotifier {
   Future<bool> _startAdvertising() async {
     for (var attempt = 1; attempt <= _kMaxRetries; attempt++) {
       try {
-        await _nearby
+        final result = await _nearby
             .startAdvertising(
               userName,
               Strategy.P2P_CLUSTER,
@@ -228,13 +263,16 @@ class NearbyService extends ChangeNotifier {
               serviceId: Constants.SERVICE_ID,
             )
             .timeout(_kTimeout);
-        debugPrint('Advertising started (attempt $attempt)');
-        return true;
+        if (result) {
+          debugPrint('Advertising started (attempt $attempt)');
+          return true;
+        }
+        debugPrint('Advertising returned false (attempt $attempt)');
       } catch (e) {
         debugPrint('Error starting advertising (attempt $attempt): $e');
-        if (attempt < _kMaxRetries) {
-          await Future.delayed(Duration(seconds: attempt * 2));
-        }
+      }
+      if (attempt < _kMaxRetries) {
+        await Future.delayed(Duration(seconds: attempt * 2));
       }
     }
     return false;
@@ -244,7 +282,7 @@ class NearbyService extends ChangeNotifier {
   Future<bool> _startDiscovery() async {
     for (var attempt = 1; attempt <= _kMaxRetries; attempt++) {
       try {
-        await _nearby
+        final result = await _nearby
             .startDiscovery(
               userName,
               Strategy.P2P_CLUSTER,
@@ -253,13 +291,16 @@ class NearbyService extends ChangeNotifier {
               serviceId: Constants.SERVICE_ID,
             )
             .timeout(_kTimeout);
-        debugPrint('Discovery started (attempt $attempt)');
-        return true;
+        if (result) {
+          debugPrint('Discovery started (attempt $attempt)');
+          return true;
+        }
+        debugPrint('Discovery returned false (attempt $attempt)');
       } catch (e) {
         debugPrint('Error starting discovery (attempt $attempt): $e');
-        if (attempt < _kMaxRetries) {
-          await Future.delayed(Duration(seconds: attempt * 2));
-        }
+      }
+      if (attempt < _kMaxRetries) {
+        await Future.delayed(Duration(seconds: attempt * 2));
       }
     }
     return false;
@@ -313,7 +354,11 @@ class NearbyService extends ChangeNotifier {
       // Move from discovered to connected
       final device = discoveredDevices.firstWhere(
         (d) => d.id == endpointId,
-        orElse: () => Device(id: endpointId, name: 'Unknown', isConnected: false),
+        orElse: () => Device(
+          id: endpointId,
+          name: 'Unknown',
+          isConnected: false,
+        ),
       );
       
       discoveredDevices.removeWhere((d) => d.id == endpointId);
@@ -321,6 +366,12 @@ class NearbyService extends ChangeNotifier {
       if (!connectedDevices.any((d) => d.id == endpointId)) {
         connectedDevices.add(device.copyWith(isConnected: true));
       }
+
+      // Share my latest location immediately with newly connected peers.
+      unawaited(startLocationBroadcast());
+
+      // Notify gateway service of new peer (for rescue bridge auto-dump)
+      onPeerConnectedCallback?.call(endpointId, device.name);
       
       notifyListeners();
       debugPrint('Connected to ${device.name}. Total connections: ${connectedDevices.length}');
@@ -330,6 +381,8 @@ class NearbyService extends ChangeNotifier {
   void _onDisconnected(String endpointId) {
     debugPrint('Disconnected from: $endpointId');
     connectedDevices.removeWhere((d) => d.id == endpointId);
+    discoveredDevices.removeWhere((d) => d.id == endpointId);
+    peerLocationsByEndpoint.remove(endpointId);
     notifyListeners();
   }
 
@@ -345,6 +398,18 @@ class NearbyService extends ChangeNotifier {
 
     final String data = utf8.decode(bytes);
     debugPrint('Received message: $data');
+
+    // Handle resource broadcast
+    if (data.startsWith(Constants.RES_PREFIX)) {
+      _handleResourcePacket(endpointId, data.substring(Constants.RES_PREFIX.length));
+      return;
+    }
+
+    // Handle gateway system messages (informational — just log)
+    if (data.startsWith(Constants.GW_PREFIX) || data.startsWith(Constants.CENSUS_PREFIX)) {
+      debugPrint('[GATEWAY] Received gateway packet from $endpointId');
+      return;
+    }
 
     // Handle roll call broadcast
     if (data.startsWith(Constants.RC_PREFIX)) {
@@ -364,6 +429,7 @@ class NearbyService extends ChangeNotifier {
         final locJson = data.substring(Constants.LOC_PREFIX.length);
         final loc = LocationUpdate.fromJson(locJson);
         peerLocations[loc.userId] = loc;
+        peerLocationsByEndpoint[endpointId] = loc;
         notifyListeners();
       } catch (e) {
         debugPrint('Error parsing location update: $e');
@@ -382,6 +448,11 @@ class NearbyService extends ChangeNotifier {
 
       await _storage.insertMessage(message);
       notifyListeners();
+
+      // Haptic feedback on SOS receive
+      if (message.isSOS) {
+        HapticFeedback.heavyImpact();
+      }
 
       if (message.hopCount < message.maxHops) {
         final forwarded = message.copyWith(hopCount: message.hopCount + 1);
@@ -474,6 +545,35 @@ class NearbyService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Broadcast an image message to all connected devices.
+  /// [imageBytes] should be compressed JPEG bytes (≤100KB ideally).
+  Future<void> broadcastImageMessage(List<int> imageBytes, {String caption = '📷 Photo'}) async {
+    final id = _uuid.v4();
+    final imgB64 = base64Encode(imageBytes);
+    final message = Message(
+      id: id,
+      senderId: myEndpointId,
+      senderName: userName,
+      content: caption,
+      timestamp: DateTime.now(),
+      isSOS: false,
+      hopCount: 0,
+      maxHops: 3, // images are large — limit hops to reduce network load
+      originId: id,
+      imageBase64: imgB64,
+    );
+
+    _rememberMessageId(message.id);
+    await _storage.insertMessage(message);
+
+    final bytes = Uint8List.fromList(utf8.encode(message.toJson()));
+    for (var device in connectedDevices) {
+      await _nearby.sendBytesPayload(device.id, bytes);
+    }
+
+    notifyListeners();
+  }
+
   Future<void> sendSOS(String content) async {
     final sosContent = '${Constants.SOS_PREFIX}$content';
     final id = _uuid.v4();
@@ -506,13 +606,26 @@ class NearbyService extends ChangeNotifier {
     try { await _nearby.stopAdvertising(); } catch (_) {}
     try { await _nearby.stopDiscovery(); } catch (_) {}
     try { await _nearby.stopAllEndpoints(); } catch (_) {}
+    _locationBroadcastTimer?.cancel();
+    _locationBroadcastTimer = null;
 
     _isRunning = false;
     meshError = null;
     discoveredDevices.clear();
     connectedDevices.clear();
     peerLocations.clear();
+    peerLocationsByEndpoint.clear();
     notifyListeners();
+  }
+
+  void _startLocationHeartbeat() {
+    _locationBroadcastTimer?.cancel();
+    _locationBroadcastTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
+      if (!_isRunning || _isFetchingLocation) return;
+      try {
+        await startLocationBroadcast();
+      } catch (_) {}
+    });
   }
 
   /// Gets current GPS fix, stores it as [myLocation], and broadcasts to peers.
@@ -539,19 +652,22 @@ class NearbyService extends ChangeNotifier {
         return;
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-        ),
-      ).timeout(const Duration(seconds: 15), onTimeout: () {
-        throw Exception('GPS timed out — no fix after 15 s');
-      });
+      Position? position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.best,
+          ),
+        ).timeout(const Duration(seconds: 15));
+      } catch (e) {
+        debugPrint('GPS get position failed, proceeding with 0/0: $e');
+      }
 
       myLocation = LocationUpdate(
         userId: userName,
         userName: userName,
-        latitude: position.latitude,
-        longitude: position.longitude,
+        latitude: position?.latitude ?? 0.0,
+        longitude: position?.longitude ?? 0.0,
         timestamp: DateTime.now(),
         isSOS: myTriageStatus == TriageStatus.sos,
         triageStatus: myTriageStatus,
@@ -564,10 +680,9 @@ class NearbyService extends ChangeNotifier {
       for (final device in connectedDevices) {
         await _nearby.sendBytesPayload(device.id, bytes);
       }
-      debugPrint('Location broadcast: ${position.latitude}, ${position.longitude}');
+      debugPrint('Location broadcast: ${position?.latitude ?? 0.0}, ${position?.longitude ?? 0.0}');
     } catch (e) {
       debugPrint('Error broadcasting location: $e');
-      rethrow;
     } finally {
       _isFetchingLocation = false;
     }
@@ -586,6 +701,50 @@ class NearbyService extends ChangeNotifier {
         final oldest = _messageIdOrder.removeFirst();
         _seenMessageIds.remove(oldest);
       }
+    }
+  }
+
+  // ── Resource broadcast ────────────────────────────────────────────────────
+
+  /// Send raw bytes to a specific peer (used by rescue bridge for census dumps).
+  Future<void> sendBytesToPeer(String peerId, Uint8List bytes) async {
+    await _nearby.sendBytesPayload(peerId, bytes);
+  }
+
+  /// Broadcast a resource offer or need to all connected peers.
+  Future<void> broadcastResource(ResourceBroadcast resource) async {
+    final key = '${resource.userId}:${resource.resourceType.jsonValue}:${resource.isOffering}';
+    peerResources[key] = resource;
+    _seenResIds.add(key);
+    notifyListeners();
+
+    final payload = Constants.RES_PREFIX + resource.toJson();
+    final bytes = Uint8List.fromList(utf8.encode(payload));
+    for (final device in connectedDevices) {
+      await _nearby.sendBytesPayload(device.id, bytes);
+    }
+  }
+
+  void _handleResourcePacket(String fromEndpointId, String wire) async {
+    ResourceBroadcast res;
+    try {
+      res = ResourceBroadcast.fromJson(wire);
+    } catch (_) {
+      return;
+    }
+
+    final key = '${res.userId}:${res.resourceType.jsonValue}:${res.isOffering}';
+    if (_seenResIds.contains(key)) return;
+    _seenResIds.add(key);
+
+    peerResources[key] = res;
+    notifyListeners();
+
+    // Relay to other peers
+    final relayed = Uint8List.fromList(utf8.encode(Constants.RES_PREFIX + wire));
+    for (final d in connectedDevices) {
+      if (d.id == fromEndpointId) continue;
+      await _nearby.sendBytesPayload(d.id, relayed);
     }
   }
 

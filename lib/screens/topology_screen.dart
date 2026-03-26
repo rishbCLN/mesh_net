@@ -1,10 +1,10 @@
-import 'dart:math';
+﻿import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 
-// ─── Data classes ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Data classes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _NodeState {
   double x, y;
@@ -13,7 +13,7 @@ class _NodeState {
   _NodeState(this.x, this.y);
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TopologyScreen extends StatefulWidget {
   const TopologyScreen({super.key});
@@ -132,7 +132,7 @@ class _TopologyScreenState extends State<TopologyScreen>
       fy[id] = fy[id]! + _kGravity * (cy - n.y);
     }
 
-    // 2. Spring along edges (me ↔ connected, me ↔ discovered)
+    // 2. Spring along edges (me â†” connected, me â†” discovered)
     final meNode = _nodes[_meId]!;
     _applySpring(fx, fy, _meId, meNode,
         service.connectedDevices.map((d) => d.id), _kSpringConnected, _kRestConnected);
@@ -251,7 +251,7 @@ class _TopologyScreenState extends State<TopologyScreen>
   }
 }
 
-// ─── Stats bar ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Stats bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _StatsBar extends StatelessWidget {
   final NearbyService service;
@@ -296,7 +296,7 @@ class _Chip extends StatelessWidget {
   }
 }
 
-// ─── Painter ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Painter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _TopologyPainter extends CustomPainter {
   final Map<String, _NodeState> nodes;
@@ -305,7 +305,7 @@ class _TopologyPainter extends CustomPainter {
   final String? tappedNodeId;
   final DateTime now;
 
-  static const _kRelayTTL = 4000; // ms — matches NearbyService._kRelayEventTTL
+  static const _kRelayTTL = 4000; // ms â€” matches NearbyService._kRelayEventTTL
 
   _TopologyPainter({
     required this.nodes,
@@ -336,7 +336,7 @@ class _TopologyPainter extends CustomPainter {
       200,
       Paint()
         ..shader = RadialGradient(colors: [
-          Colors.blueAccent.withOpacity(0.08),
+          Colors.blueAccent.withValues(alpha: 0.08),
           Colors.transparent,
         ]).createShader(Rect.fromCircle(
             center: Offset(meNode.x, meNode.y), radius: 200)),
@@ -350,7 +350,7 @@ class _TopologyPainter extends CustomPainter {
 
     // Connected: solid bright edge
     final connectedPaint = Paint()
-      ..color = Colors.cyanAccent.withOpacity(0.45)
+      ..color = Colors.cyanAccent.withValues(alpha: 0.45)
       ..strokeWidth = 1.8
       ..style = PaintingStyle.stroke;
 
@@ -365,7 +365,7 @@ class _TopologyPainter extends CustomPainter {
       final peer = nodes[d.id];
       if (peer == null) continue;
       _drawDashedLine(canvas, meOff, Offset(peer.x, peer.y),
-          Colors.white.withOpacity(0.18), 1.0);
+          Colors.white.withValues(alpha: 0.18), 1.0);
     }
   }
 
@@ -408,7 +408,7 @@ class _TopologyPainter extends CustomPainter {
     for (final event in service.relayEvents) {
       final age = now.difference(event.timestamp).inMilliseconds;
       if (age > _kRelayTTL) continue;
-      final t = age / _kRelayTTL.toDouble(); // 0.0 → 1.0
+      final t = age / _kRelayTTL.toDouble(); // 0.0 â†’ 1.0
 
       final fromNode = nodes[event.fromId];
       final toNode = nodes[event.toId];
@@ -419,18 +419,18 @@ class _TopologyPainter extends CustomPainter {
 
       final opacity = (1.0 - t).clamp(0.0, 1.0);
 
-      // First half: fromId → me
-      // Second half: me → toId
+      // First half: fromId â†’ me
+      // Second half: me â†’ toId
       Offset dotPos;
       if (t < 0.5) {
-        final s = t / 0.5; // 0→1
+        final s = t / 0.5; // 0â†’1
         if (fromNode != null) {
           dotPos = Offset.lerp(Offset(fromNode.x, fromNode.y), meOff, s)!;
         } else {
           dotPos = meOff;
         }
       } else {
-        final s = (t - 0.5) / 0.5; // 0→1
+        final s = (t - 0.5) / 0.5; // 0â†’1
         if (toNode != null) {
           dotPos = Offset.lerp(meOff, Offset(toNode.x, toNode.y), s)!;
         } else {
@@ -442,13 +442,13 @@ class _TopologyPainter extends CustomPainter {
       canvas.drawCircle(
         dotPos,
         12,
-        Paint()..color = color.withOpacity(opacity * 0.25),
+        Paint()..color = color.withValues(alpha: opacity * 0.25),
       );
       // Core
       canvas.drawCircle(
         dotPos,
         5,
-        Paint()..color = color.withOpacity(opacity),
+        Paint()..color = color.withValues(alpha: opacity),
       );
     }
   }
@@ -482,7 +482,8 @@ class _TopologyPainter extends CustomPainter {
           label = id.substring(0, min(6, id.length));
           baseColor = Colors.grey;
         }
-        triage = service.peerLocations[label]?.triageStatus;
+        triage = service.peerLocations[label]?.triageStatus ??
+            service.peerLocationsByEndpoint[id]?.triageStatus;
       }
 
       final pos = Offset(node.x, node.y);
@@ -493,7 +494,7 @@ class _TopologyPainter extends CustomPainter {
         canvas.drawCircle(
           pos,
           radius + 14,
-          Paint()..color = baseColor.withOpacity(0.15),
+          Paint()..color = baseColor.withValues(alpha: 0.15),
         );
       }
 
@@ -503,7 +504,7 @@ class _TopologyPainter extends CustomPainter {
           pos,
           radius + 5,
           Paint()
-            ..color = triage.color.withOpacity(0.7)
+            ..color = triage.color.withValues(alpha: 0.7)
             ..style = PaintingStyle.stroke
             ..strokeWidth = 3,
         );
@@ -513,7 +514,7 @@ class _TopologyPainter extends CustomPainter {
       canvas.drawCircle(
         pos,
         radius + 6,
-        Paint()..color = baseColor.withOpacity(0.18),
+        Paint()..color = baseColor.withValues(alpha: 0.18),
       );
 
       // Shadow
@@ -524,20 +525,20 @@ class _TopologyPainter extends CustomPainter {
       );
 
       // Main node fill
-      canvas.drawCircle(pos, radius, Paint()..color = baseColor.withOpacity(0.9));
+      canvas.drawCircle(pos, radius, Paint()..color = baseColor.withValues(alpha: 0.9));
 
       // Inner highlight
       canvas.drawCircle(
         pos - Offset(radius * 0.25, radius * 0.25),
         radius * 0.35,
-        Paint()..color = Colors.white.withOpacity(0.2),
+        Paint()..color = Colors.white.withValues(alpha: 0.2),
       );
 
       // Icon for "me"
       if (isMe) {
         final tp = TextPainter(
           text: const TextSpan(
-            text: '⬡',
+            text: 'â¬¡',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -561,12 +562,12 @@ class _TopologyPainter extends CustomPainter {
 
   void _drawLabel(Canvas canvas, String label, Offset pos, double radius,
       Color baseColor, TriageStatus? triage) {
-    final displayLabel = label.length > 10 ? '${label.substring(0, 9)}…' : label;
+    final displayLabel = label.length > 10 ? '${label.substring(0, 9)}â€¦' : label;
     final tp = TextPainter(
       text: TextSpan(
         text: displayLabel,
         style: TextStyle(
-          color: Colors.white.withOpacity(0.85),
+          color: Colors.white.withValues(alpha: 0.85),
           fontSize: 10,
           fontWeight: FontWeight.w600,
           shadows: const [Shadow(blurRadius: 4, color: Colors.black)],
@@ -628,7 +629,7 @@ class _TopologyPainter extends CustomPainter {
     canvas.drawRRect(
       rect,
       Paint()
-        ..color = Colors.cyanAccent.withOpacity(0.4)
+        ..color = Colors.cyanAccent.withValues(alpha: 0.4)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );
@@ -652,3 +653,4 @@ class _TopologyPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TopologyPainter old) => true; // always repaint while ticker runs
 }
+

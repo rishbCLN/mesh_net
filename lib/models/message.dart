@@ -10,6 +10,7 @@ class Message {
   final int hopCount;
   final int maxHops;
   final String originId;
+  final String? imageBase64;
 
   Message({
     required this.id,
@@ -21,6 +22,7 @@ class Message {
     int hopCount = 0,
     int? maxHops,
     String? originId,
+    this.imageBase64,
   })  : hopCount = hopCount,
         // SOS messages always have maxHops forced to 10
         maxHops = isSOS ? 10 : (maxHops ?? 5),
@@ -36,6 +38,7 @@ class Message {
     int? hopCount,
     int? maxHops,
     String? originId,
+    String? imageBase64,
   }) {
     final resolvedIsSOS = isSOS ?? this.isSOS;
     return Message(
@@ -48,6 +51,7 @@ class Message {
       hopCount: hopCount ?? this.hopCount,
       maxHops: maxHops ?? this.maxHops,
       originId: originId ?? this.originId,
+      imageBase64: imageBase64 ?? this.imageBase64,
     );
   }
 
@@ -87,7 +91,7 @@ class Message {
   }
 
   String toJson() {
-    return jsonEncode({
+    final Map<String, dynamic> map = {
       'id': id,
       'senderId': senderId,
       'senderName': senderName,
@@ -97,7 +101,9 @@ class Message {
       'hopCount': hopCount,
       'maxHops': maxHops,
       'originId': originId,
-    });
+    };
+    if (imageBase64 != null) map['imageBase64'] = imageBase64;
+    return jsonEncode(map);
   }
 
   factory Message.fromJson(String source) {
@@ -112,6 +118,7 @@ class Message {
       hopCount: (data['hopCount'] as int?) ?? 0,
       maxHops: (data['maxHops'] as int?) ?? ((data['isSOS'] as bool) ? 10 : 5),
       originId: (data['originId'] as String?) ?? (data['id'] as String),
+      imageBase64: data['imageBase64'] as String?,
     );
   }
 }
