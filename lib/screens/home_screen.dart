@@ -18,6 +18,7 @@ import 'resources_screen.dart';
 import 'roll_call_screen.dart';
 import 'sos_screen.dart';
 import 'topology_screen.dart';
+import 'doctor_screen.dart';
 import '../utils/time_ago.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -607,6 +608,30 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                         label: const Text(
                           'Resources',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Local Doctor button
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.medical_services_rounded),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const DoctorScreen(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 52),
+                          backgroundColor: const Color(0xFF0D1A14),
+                          foregroundColor: Colors.tealAccent,
+                          side: const BorderSide(color: Colors.tealAccent, width: 1),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        label: const Text(
+                          'Local Doctor',
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                       ),
