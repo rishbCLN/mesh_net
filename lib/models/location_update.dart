@@ -9,7 +9,7 @@ class LocationUpdate {
   final DateTime timestamp;
   final bool isSOS;
   final TriageStatus triageStatus;
-  final double heading; // compass bearing in degrees (0=N, 90=E, etc.)
+  final double heading; 
 
   LocationUpdate({
     required this.userId,

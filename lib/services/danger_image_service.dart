@@ -4,13 +4,13 @@ import 'dart:typed_data';
 class DangerImageService {
   static const int _chunkSize = 512;
 
-  /// Compress raw image bytes to a smaller JPEG suitable for mesh broadcast.
-  /// Uses basic downsampling — no external image package needed.
-  /// The image_picker already gives us a reasonably sized JPEG.
-  /// We just base64- encode it as-is (image_picker maxWidth/quality handles size).
+  
+  
+  
+  
 
-  /// Split compressed image into chunks for BYTES payload broadcast.
-  /// Each chunk: "{imageId}::{chunkIndex}::{totalChunks}::{base64data}"
+  
+  
   static List<String> chunkImage(String imageId, Uint8List imageBytes) {
     final base64Full = base64Encode(imageBytes);
     final chunks = <String>[];
@@ -27,7 +27,7 @@ class DangerImageService {
     return chunks;
   }
 
-  /// Reassemble chunks back into image bytes.
+  
   static Uint8List? reassembleChunks(
     int totalChunks,
     Map<int, String> chunks,

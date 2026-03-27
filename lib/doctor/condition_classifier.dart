@@ -1,37 +1,36 @@
 import '../services/medical_db_service.dart';
 import 'symptom_normalizer.dart';
 
-/// Scores conditions by weighted symptom overlap and returns the top matches.
 class ConditionClassifier {
   final MedicalDbService _db;
 
-  /// Cache: conditionId → [{ symptom, weight }]
+  
   Map<int, List<_SymptomWeight>>? _symptomMap;
 
-  /// Cache: conditionId → condition row
+  
   Map<int, Map<String, dynamic>>? _conditionMap;
 
   ConditionClassifier(this._db);
 
-  /// Given a list of [NormalizedSymptom] from the normalizer, return the
-  /// top [limit] matching conditions sorted by descending score.
+  
+  
   Future<List<ClassificationResult>> classify(
     List<NormalizedSymptom> symptoms, {
     int limit = 3,
   }) async {
     await _ensureCache();
 
-    // Aggregate: conditionId → total weighted score
+    
     final scores = <int, double>{};
     final matchedSymptoms = <int, Set<String>>{};
 
     for (final ns in symptoms) {
-      // Direct condition hint from phrase match
+      
       scores[ns.conditionId] =
           (scores[ns.conditionId] ?? 0) + ns.confidence * 2.0;
       matchedSymptoms.putIfAbsent(ns.conditionId, () => {}).add(ns.canonical);
 
-      // Also score every condition that has this canonical symptom
+      
       for (final entry in _symptomMap!.entries) {
         for (final sw in entry.value) {
           if (sw.symptom == ns.canonical) {
@@ -45,7 +44,7 @@ class ConditionClassifier {
 
     if (scores.isEmpty) return [];
 
-    // Normalize scores relative to maximum possible per condition
+    
     final results = <ClassificationResult>[];
     for (final entry in scores.entries) {
       final condId = entry.key;

@@ -8,16 +8,10 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
-/// Serves tiles from a local disk cache.
-/// On first access a tile is downloaded from OSM and written to storage;
-/// every subsequent access (online OR offline) reads the cached file.
-///
-/// Cache location: <documentsDir>/tile_cache/<z>_<x>_<y>.png
-/// No tile is ever evicted — the cache grows until storage is full.
 class CachedNetworkTileProvider extends TileProvider {
   Directory? _cacheDir;
 
-  /// Exposes the cache directory so callers can pass it to [prefetchArea].
+  
   Directory? get cacheDir => _cacheDir;
 
   Future<void> initialize() async {
@@ -40,9 +34,9 @@ class CachedNetworkTileProvider extends TileProvider {
     );
   }
 
-  /// Downloads and caches every OSM tile within [radiusKm] of [lat]/[lng]
-  /// for zoom levels [minZoom]..[maxZoom].  Runs concurrently (max 8 at a
-  /// time) and silently ignores all errors — this is background prefetch.
+  
+  
+  
   static Future<void> prefetchArea({
     required double lat,
     required double lng,
@@ -53,7 +47,7 @@ class CachedNetworkTileProvider extends TileProvider {
   }) async {
     if (cacheDir == null) return;
 
-    // Lat/lng → OSM tile x/y for a given zoom level
+    
     int _toTileX(double lng, int z) =>
         ((lng + 180.0) / 360.0 * (1 << z)).floor();
     int _toTileY(double lat, int z) {
@@ -66,27 +60,27 @@ class CachedNetworkTileProvider extends TileProvider {
           .floor();
     }
 
-    // Approximate degrees per km at this latitude
+    
     final latDelta = radiusKm / 111.0;
     final lngDelta = radiusKm / (111.0 * math.cos(lat * math.pi / 180.0));
 
     final client = http.Client();
     try {
-      // Semaphore: at most 8 concurrent requests
+      
       int active = 0;
       final pending = <Future<void>>[];
 
       for (int z = minZoom; z <= maxZoom; z++) {
         final xMin = _toTileX(lng - lngDelta, z);
         final xMax = _toTileX(lng + lngDelta, z);
-        final yMin = _toTileY(lat + latDelta, z); // note: y increases downward
+        final yMin = _toTileY(lat + latDelta, z); 
         final yMax = _toTileY(lat - latDelta, z);
 
         for (int x = xMin; x <= xMax; x++) {
           for (int y = yMin; y <= yMax; y++) {
             final file =
                 File(p.join(cacheDir.path, '${z}_${x}_$y.png'));
-            if (file.existsSync()) continue; // already cached
+            if (file.existsSync()) continue; 
 
             final url = 'https://tile.openstreetmap.org/$z/$x/$y.png';
             final fut = () async {
@@ -146,7 +140,7 @@ class _CachedTileImageProvider
   }
 
   Future<ImageInfo> _load(ImageDecoderCallback decode) async {
-    // 1. Serve from disk cache if hit
+    
     if (cacheDir != null) {
       try {
         final file = File(p.join(cacheDir!.path, _cacheFile));
@@ -157,7 +151,7 @@ class _CachedTileImageProvider
       } catch (_) {}
     }
 
-    // 2. Fetch from network and cache
+    
     try {
       final response = await http.get(
         Uri.parse(_url),
@@ -166,7 +160,7 @@ class _CachedTileImageProvider
 
       if (response.statusCode == 200) {
         final bytes = response.bodyBytes;
-        // Write to cache (fire-and-forget, errors ignored)
+        
         if (cacheDir != null) {
           try {
             await File(p.join(cacheDir!.path, _cacheFile))
@@ -177,7 +171,7 @@ class _CachedTileImageProvider
       }
     } catch (_) {}
 
-    // 3. Dark fallback — no internet or no cache for this tile
+    
     return _darkTile();
   }
 

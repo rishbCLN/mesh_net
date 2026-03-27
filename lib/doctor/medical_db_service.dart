@@ -1,4 +1,4 @@
-/// Barrel export for the doctor module.
+
 library;
 
 export '../services/medical_db_service.dart';

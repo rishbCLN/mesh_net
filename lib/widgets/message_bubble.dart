@@ -40,7 +40,7 @@ class MessageBubble extends StatelessWidget {
             crossAxisAlignment:
                 isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              // Sender name
+              
               if (!isMe || message.isSOS)
                 Text(
                   message.senderName,
@@ -52,7 +52,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               if (!isMe || message.isSOS) const SizedBox(height: 4),
               
-              // SOS indicator
+              
               if (message.isSOS)
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -71,7 +71,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               if (message.isSOS) const SizedBox(height: 6),
               
-              // Inline image
+              
               if (message.imageBase64 != null && message.imageBase64!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -97,7 +97,7 @@ class MessageBubble extends StatelessWidget {
                   ),
                 ),
               
-              // Message content
+              
               Text(
                 message.content,
                 style: const TextStyle(
@@ -107,7 +107,7 @@ class MessageBubble extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               
-              // Timestamp + hop count
+              
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

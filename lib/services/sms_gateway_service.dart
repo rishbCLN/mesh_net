@@ -26,10 +26,10 @@ class SmsGatewayService {
   })  : _storage = storage,
         _nearby = nearby;
 
-  /// Begin passive GSM signal monitoring.
-  /// Checks every 30 seconds and fires SMS if contacts are configured.
+  
+  
   void startMonitoring() {
-    if (!Platform.isAndroid) return; // SMS sending is Android-only
+    if (!Platform.isAndroid) return; 
     _signalMonitorTimer?.cancel();
     _signalMonitorTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -45,7 +45,7 @@ class SmsGatewayService {
   Future<void> _checkAndFireIfReady() async {
     if (emergencyContacts.isEmpty) return;
 
-    // Cooldown guard
+    
     if (_lastSmsFired != null &&
         DateTime.now().difference(_lastSmsFired!) < smsCooldown) {
       return;
@@ -81,12 +81,12 @@ class SmsGatewayService {
     }
   }
 
-  /// Build a compact, information-dense SMS payload from mesh state.
+  
   Future<String> _buildSmsPayload() async {
     final allMessages = await _storage.getAllMessages();
     final sosMessages = allMessages.where((m) => m.isSOS).toList();
 
-    // Count triage states from peer location data
+    
     int critical = 0, injured = 0, trapped = 0;
     for (final loc in _nearby.peerLocations.values) {
       switch (loc.triageStatus) {
@@ -104,14 +104,14 @@ class SmsGatewayService {
       }
     }
 
-    final totalSurvivors = _nearby.connectedDevices.length + 1; // +self
+    final totalSurvivors = _nearby.connectedDevices.length + 1; 
 
-    // Get most recent SOS message content
+    
     final recentSos = sosMessages.isNotEmpty
         ? sosMessages.last.content.replaceFirst('SOS::', '').trim()
         : 'No SOS message';
 
-    // Get best available GPS
+    
     final ownLoc = _nearby.myLocation;
     final locationStr = ownLoc != null && ownLoc.latitude != 0.0
         ? '${ownLoc.latitude.toStringAsFixed(4)},${ownLoc.longitude.toStringAsFixed(4)}'
@@ -131,9 +131,9 @@ class SmsGatewayService {
     return buffer.toString();
   }
 
-  /// Manually trigger SMS burst — e.g. from Hard SOS
+  
   Future<void> forceSend() async {
-    _lastSmsFired = null; // Override cooldown
+    _lastSmsFired = null; 
     await _checkAndFireIfReady();
   }
 

@@ -5,7 +5,6 @@ import '../models/triage_data.dart';
 import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 
-/// Chat-style AI triage assistant that walks through the START protocol.
 class TriageAssistantScreen extends StatefulWidget {
   const TriageAssistantScreen({super.key});
 
@@ -23,7 +22,7 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
   @override
   void initState() {
     super.initState();
-    // Push initial question
+    
     _pushAssistant(_current);
   }
 
@@ -51,7 +50,7 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
     }
     setState(() {});
 
-    // Haptic feedback on each tap
+    
     HapticFeedback.lightImpact();
   }
 
@@ -116,7 +115,7 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
       ),
       body: Column(
         children: [
-          // Protocol banner
+          
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -129,7 +128,7 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
             ),
           ),
 
-          // Chat history
+          
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
@@ -141,7 +140,7 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
             ),
           ),
 
-          // Action area
+          
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             decoration: BoxDecoration(
@@ -188,7 +187,7 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
 
     return Column(
       children: [
-        // Result badge
+        
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
@@ -213,7 +212,7 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
           ),
         ),
         const SizedBox(height: 14),
-        // Apply + broadcast button
+        
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -244,8 +243,6 @@ class _TriageAssistantScreenState extends State<TriageAssistantScreen> {
     );
   }
 }
-
-// ─── Chat bubble ─────────────────────────────────────────────────────────────
 
 class _ChatEntry {
   final String text;
@@ -332,8 +329,6 @@ class _ChatBubble extends StatelessWidget {
     );
   }
 }
-
-// ─── Action button ───────────────────────────────────────────────────────────
 
 class _ActionButton extends StatelessWidget {
   final String label;

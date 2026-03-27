@@ -1,13 +1,12 @@
 import 'dart:convert';
 import '../services/medical_db_service.dart';
 
-/// Parses and traverses JSON decision trees stored in medical.db.
 class DecisionTreeEngine {
   final MedicalDbService _db;
 
   DecisionTreeEngine(this._db);
 
-  /// Load the decision tree for a condition. Returns null if not found.
+  
   Future<TreeNode?> loadTree(int conditionId) async {
     final rows = await _db.query(
       'decision_trees',
@@ -39,24 +38,20 @@ class DecisionTreeEngine {
   }
 }
 
-/// Base class for tree nodes.
 abstract class TreeNode {}
 
-/// A question node with selectable options.
 class TreeQuestion extends TreeNode {
   final String question;
   final List<TreeOption> options;
   TreeQuestion({required this.question, required this.options});
 }
 
-/// An option leading to the next node.
 class TreeOption {
   final String label;
   final TreeNode next;
   TreeOption({required this.label, required this.next});
 }
 
-/// A terminal outcome node.
 class TreeOutcome extends TreeNode {
   final String outcome;
   final String triage;

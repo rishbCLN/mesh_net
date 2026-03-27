@@ -1,6 +1,5 @@
 import 'dart:io';
 
-/// Returns the current battery level as an integer (0-100), or null on failure.
 Future<int?> getBatteryLevel() async {
   try {
     if (Platform.isAndroid) {

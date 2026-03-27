@@ -36,7 +36,7 @@ class Message {
     this.senderLng,
     this.senderBattery,
   })  : hopCount = hopCount,
-        // SOS messages always have maxHops forced to 10
+        
         maxHops = isSOS ? 10 : (maxHops ?? 5),
         originId = originId ?? id;
 

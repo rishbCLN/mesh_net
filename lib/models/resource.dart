@@ -51,7 +51,7 @@ class ResourceBroadcast {
   final String userId;
   final String userName;
   final ResourceType resourceType;
-  final bool isOffering; // true = "I have this", false = "I need this"
+  final bool isOffering; 
   final double latitude;
   final double longitude;
   final DateTime timestamp;

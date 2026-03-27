@@ -9,7 +9,7 @@ import 'package:uuid/uuid.dart';
 class MediaMessageService {
   static const _uuid = Uuid();
 
-  // ── Landmark cache ──────────────────────────────────────────────────────
+  
   static List<Map<String, dynamic>>? _landmarks;
 
   static Future<void> _loadLandmarks() async {
@@ -19,8 +19,8 @@ class MediaMessageService {
     _landmarks = list.cast<Map<String, dynamic>>();
   }
 
-  /// Resolve a human-readable location label from coordinates.
-  /// Returns "📍 <landmark>" if within radius, otherwise formatted coords.
+  
+  
   static Future<String> resolveLocationLabel(double lat, double lng) async {
     await _loadLandmarks();
     for (final lm in _landmarks!) {
@@ -32,7 +32,7 @@ class MediaMessageService {
         return '📍 ${lm['name']}';
       }
     }
-    // Format coordinates
+    
     final latDir = lat >= 0 ? 'N' : 'S';
     final lngDir = lng >= 0 ? 'E' : 'W';
     final latStr = lat.abs().toStringAsFixed(4);
@@ -41,7 +41,7 @@ class MediaMessageService {
   }
 
   static double _haversineMeters(double lat1, double lng1, double lat2, double lng2) {
-    const R = 6371000.0; // Earth radius in meters
+    const R = 6371000.0; 
     final dLat = _deg2rad(lat2 - lat1);
     final dLng = _deg2rad(lng2 - lng1);
     final a = sin(dLat / 2) * sin(dLat / 2) +
@@ -52,9 +52,9 @@ class MediaMessageService {
 
   static double _deg2rad(double deg) => deg * (pi / 180);
 
-  // ── Photo compression ───────────────────────────────────────────────────
+  
 
-  /// Compress an image file and return the path to the compressed temp file.
+  
   static Future<String> compressImage(String sourcePath) async {
     final tempDir = await getTemporaryDirectory();
     final targetPath = '${tempDir.path}/${_uuid.v4()}.jpg';
@@ -72,7 +72,7 @@ class MediaMessageService {
     return result.path;
   }
 
-  /// Build the metadata JSON that precedes a photo file payload.
+  
   static String buildPhotoMetadata({
     required String messageId,
     required String senderName,
@@ -90,7 +90,7 @@ class MediaMessageService {
     });
   }
 
-  /// Build the metadata JSON that precedes an audio file payload.
+  
   static String buildAudioMetadata({
     required String messageId,
     required String senderName,
@@ -110,7 +110,7 @@ class MediaMessageService {
     });
   }
 
-  /// Ensure the received_media directory exists and return its path.
+  
   static Future<String> getReceivedMediaDir() async {
     final docDir = await getApplicationDocumentsDirectory();
     final mediaDir = Directory('${docDir.path}/received_media');

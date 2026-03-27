@@ -8,7 +8,6 @@ import '../models/location_update.dart';
 import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 
-/// Full-screen compass-arrow navigation toward a selected survivor.
 class NavigateScreen extends StatefulWidget {
   final LocationUpdate target;
 
@@ -22,7 +21,7 @@ class _NavigateScreenState extends State<NavigateScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulse;
   StreamSubscription<CompassEvent>? _compassSub;
-  double _heading = 0.0; // device heading (degrees from true north)
+  double _heading = 0.0; 
   Timer? _refreshTimer;
 
   @override
@@ -40,12 +39,12 @@ class _NavigateScreenState extends State<NavigateScreen>
       }
     });
 
-    // Periodic refresh so distance updates as GPS updates
+    
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (mounted) setState(() {});
     });
 
-    // Haptic on open
+    
     HapticFeedback.mediumImpact();
   }
 
@@ -57,7 +56,7 @@ class _NavigateScreenState extends State<NavigateScreen>
     super.dispose();
   }
 
-  /// Bearing from point A to point B in degrees (0 = north, 90 = east).
+  
   double _bearingTo(double lat1, double lon1, double lat2, double lon2) {
     final dLon = (lon2 - lon1) * pi / 180.0;
     final la1 = lat1 * pi / 180.0;
@@ -68,7 +67,7 @@ class _NavigateScreenState extends State<NavigateScreen>
     return (bearing + 360) % 360;
   }
 
-  /// Haversine distance in meters.
+  
   double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
     const earthRadius = 6371000.0;
     final dLat = (lat2 - lat1) * pi / 180.0;
@@ -95,7 +94,7 @@ class _NavigateScreenState extends State<NavigateScreen>
         final myLoc = service.myLocation;
         final target = widget.target;
 
-        // Try to get a fresher target location from peer updates
+        
         final freshTarget =
             service.peerLocations[target.userId] ?? target;
 
@@ -118,8 +117,8 @@ class _NavigateScreenState extends State<NavigateScreen>
           );
         }
 
-        // Arrow rotation = bearing - heading (so arrow points to target
-        // relative to where the device is facing)
+        
+        
         final arrowAngle = (bearing - _heading) * pi / 180.0;
 
         final statusColor = freshTarget.triageStatus.color;
@@ -163,7 +162,7 @@ class _NavigateScreenState extends State<NavigateScreen>
                       return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // Target info card
+                          
                           Container(
                             margin: const EdgeInsets.symmetric(horizontal: 32),
                             padding: const EdgeInsets.symmetric(
@@ -194,7 +193,7 @@ class _NavigateScreenState extends State<NavigateScreen>
                           ),
                           const SizedBox(height: 40),
 
-                          // Distance
+                          
                           Text(
                             _formatDistance(distance),
                             style: TextStyle(
@@ -218,7 +217,7 @@ class _NavigateScreenState extends State<NavigateScreen>
                           ),
                           const SizedBox(height: 48),
 
-                          // Compass arrow
+                          
                           SizedBox(
                             width: 200,
                             height: 200,
@@ -232,7 +231,7 @@ class _NavigateScreenState extends State<NavigateScreen>
                           ),
                           const SizedBox(height: 24),
 
-                          // Bearing text
+                          
                           Text(
                             '${bearing.toStringAsFixed(0)}° from north',
                             style: const TextStyle(
@@ -254,7 +253,7 @@ class _NavigateScreenState extends State<NavigateScreen>
                           ),
                           const SizedBox(height: 40),
 
-                          // GPS coords
+                          
                           Text(
                             '${freshTarget.latitude.toStringAsFixed(5)}, '
                             '${freshTarget.longitude.toStringAsFixed(5)}',
@@ -272,9 +271,8 @@ class _NavigateScreenState extends State<NavigateScreen>
   }
 }
 
-/// CustomPainter that draws a large directional arrow.
 class _ArrowPainter extends CustomPainter {
-  final double angle; // radians
+  final double angle; 
   final Color color;
   final double glowValue;
 
@@ -290,7 +288,7 @@ class _ArrowPainter extends CustomPainter {
     final cy = size.height / 2;
     final radius = min(cx, cy);
 
-    // Outer ring
+    
     canvas.drawCircle(
       Offset(cx, cy),
       radius,
@@ -307,7 +305,7 @@ class _ArrowPainter extends CustomPainter {
         ..strokeWidth = 2,
     );
 
-    // Inner ring
+    
     canvas.drawCircle(
       Offset(cx, cy),
       radius * 0.75,
@@ -321,15 +319,15 @@ class _ArrowPainter extends CustomPainter {
     canvas.translate(cx, cy);
     canvas.rotate(angle);
 
-    // Arrow shape — large chevron
+    
     final arrowPath = Path()
-      ..moveTo(0, -radius * 0.65) // tip
-      ..lineTo(radius * 0.35, radius * 0.35) // right
-      ..lineTo(0, radius * 0.15) // center notch
-      ..lineTo(-radius * 0.35, radius * 0.35) // left
+      ..moveTo(0, -radius * 0.65) 
+      ..lineTo(radius * 0.35, radius * 0.35) 
+      ..lineTo(0, radius * 0.15) 
+      ..lineTo(-radius * 0.35, radius * 0.35) 
       ..close();
 
-    // Glow shadow
+    
     if (glowValue > 0) {
       canvas.drawPath(
         arrowPath,
@@ -339,19 +337,19 @@ class _ArrowPainter extends CustomPainter {
       );
     }
 
-    // Shadow
+    
     canvas.drawPath(
       arrowPath.shift(const Offset(2, 2)),
       Paint()..color = Colors.black45,
     );
 
-    // Fill
+    
     canvas.drawPath(
       arrowPath,
       Paint()..color = color,
     );
 
-    // Highlight on left edge
+    
     canvas.drawPath(
       Path()
         ..moveTo(0, -radius * 0.65)
@@ -363,7 +361,7 @@ class _ArrowPainter extends CustomPainter {
 
     canvas.restore();
 
-    // Center dot
+    
     canvas.drawCircle(
       Offset(cx, cy),
       6,

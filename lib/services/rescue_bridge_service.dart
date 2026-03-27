@@ -6,11 +6,10 @@ import 'storage_service.dart';
 import 'nearby_service.dart';
 import '../core/constants.dart';
 
-/// Device roles for the mesh — determines auto-dump behaviour.
 enum DeviceRole {
-  survivor,     // Default
-  coordinator,  // Community coordinator
-  rescue,       // Emergency responder — triggers auto-dump on connect
+  survivor,     
+  coordinator,  
+  rescue,       
 }
 
 class RescueBridgeService {
@@ -25,8 +24,8 @@ class RescueBridgeService {
   })  : _storage = storage,
         _nearby = nearby;
 
-  /// Called by NearbyService when a new peer connects.
-  /// Checks if their advertised name indicates rescue/coordinator role.
+  
+  
   Future<void> onPeerConnected(String peerId, String peerName) async {
     final role = _parseRoleFromName(peerName);
     if (role == DeviceRole.rescue || role == DeviceRole.coordinator) {
@@ -36,10 +35,10 @@ class RescueBridgeService {
     }
   }
 
-  /// Role is encoded in the advertised name prefix:
-  ///   "RESCUE:TeamAlpha"  → DeviceRole.rescue
-  ///   "COORD:Jane"        → DeviceRole.coordinator
-  ///   "Alice"             → DeviceRole.survivor
+  
+  
+  
+  
   DeviceRole _parseRoleFromName(String name) {
     if (name.startsWith('RESCUE:')) return DeviceRole.rescue;
     if (name.startsWith('COORD:')) return DeviceRole.coordinator;

@@ -7,19 +7,6 @@ import '../models/triage_status.dart';
 import 'storage_service.dart';
 import 'nearby_service.dart';
 
-/// Uploads mesh state directly to a free JSONBin.io bin.
-/// No custom backend needed — the rescue website reads from the same bin.
-///
-/// Setup (one-time):
-///   1. Create a free account at https://jsonbin.io
-///   2. Copy your X-Master-Key from the API Keys page
-///   3. Create a new bin with body: {}  — note the Bin ID
-///   4. Make the bin PUBLIC (Settings → Private = OFF)
-///   5. In the app's Gateway Settings, set the URL to:
-///        https://api.jsonbin.io/v3/b/YOUR_BIN_ID
-///   6. Set the API key constant below (or in gateway settings)
-///
-/// The website fetches:  GET  https://api.jsonbin.io/v3/b/YOUR_BIN_ID/latest
 class InternetGatewayService {
   final StorageService _storage;
   final NearbyService _nearby;
@@ -31,11 +18,11 @@ class InternetGatewayService {
   DateTime? _lastUpload;
   DateTime? get lastUpload => _lastUpload;
 
-  // ── JSONBin.io config (hardcoded for hackathon — remove before production) ──
+  
   static const String defaultBinUrl = 'https://api.jsonbin.io/v3/b/69c63d08aa77b81da924ff94';
   static const String defaultBinKey = r'$2a$10$H4E2tH4v/4D2UylYgZv/yewVYeBXNgTqedQ7v/eE/mx0OUWnzFOTO';
 
-  // These remain settable from Gateway Settings (override the hardcoded defaults)
+  
   String gatewayUrl = defaultBinUrl;
   String jsonBinApiKey = defaultBinKey;
 
@@ -75,7 +62,7 @@ class InternetGatewayService {
     try {
       final payload = await _buildPayload();
 
-      // PUT to JSONBin.io — overwrites the bin content
+      
       final response = await http
           .put(
             Uri.parse(gatewayUrl),
@@ -92,7 +79,7 @@ class InternetGatewayService {
         _uploadSuccess = true;
         debugPrint('[GATEWAY] JSONBin upload OK — ${payload['survivors']?.length ?? 0} survivors');
 
-        // Tell the mesh that data escaped to the internet
+        
         await _nearby.broadcastMessage(
           'GATEWAY::upload_success:${DateTime.now().toIso8601String()}',
         );
@@ -106,15 +93,15 @@ class InternetGatewayService {
     }
   }
 
-  /// Builds the exact JSON shape the rescue website expects:
-  /// { ts, survivors: [{ name, lat, lng, status, lastSeen }], ... }
+  
+  
   Future<Map<String, dynamic>> _buildPayload() async {
     final allMessages = await _storage.getAllMessages();
 
-    // ── Survivor list (website-ready format) ──
+    
     final survivors = <Map<String, dynamic>>[];
 
-    // Include the uploading device itself
+    
     if (_nearby.myLocation != null) {
       survivors.add({
         'name': _nearby.myEndpointId,
@@ -125,7 +112,7 @@ class InternetGatewayService {
       });
     }
 
-    // Include all known peers from the mesh
+    
     for (final entry in _nearby.peerLocations.entries) {
       survivors.add({
         'name': entry.value.userName,
@@ -136,7 +123,7 @@ class InternetGatewayService {
       });
     }
 
-    // ── SOS log ──
+    
     final sosLog = allMessages
         .where((m) => m.isSOS)
         .map((m) => {
@@ -167,7 +154,7 @@ class InternetGatewayService {
     }
   }
 
-  /// Force upload attempt — called manually or from Hard SOS Mode
+  
   Future<bool> forceUpload() async {
     _lastUpload = null;
     await _performGatewayUpload();

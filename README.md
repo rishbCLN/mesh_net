@@ -2,6 +2,12 @@
 
 Offline mesh communication disaster app for Android (Flutter)
 
+## Live Rescue Map
+
+**https://mesh-rescue-website.vercel.app/**
+
+Real-time survivor map — updated automatically whenever any mesh device regains internet connectivity.
+
 ## Features
 - Offline mesh communication (no internet, no Firebase)
 - Android only (minSdkVersion 21)

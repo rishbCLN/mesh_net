@@ -69,8 +69,6 @@ class _ResourcesScreenState extends State<ResourcesScreen>
   }
 }
 
-// ─── "I Have" tab: offer resources ───────────────────────────────────────────
-
 class _OfferTab extends StatelessWidget {
   final NearbyService service;
 
@@ -78,7 +76,7 @@ class _OfferTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Resources NEEDED by others on the mesh
+    
     final othersNeeds = service.peerResources.values
         .where((r) => r.userId != service.userName && !r.isOffering)
         .toList();
@@ -122,8 +120,6 @@ class _OfferTab extends StatelessWidget {
   }
 }
 
-// ─── "I Need" tab: request resources ─────────────────────────────────────────
-
 class _NeedTab extends StatelessWidget {
   final NearbyService service;
 
@@ -131,7 +127,7 @@ class _NeedTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Resources OFFERED by others on the mesh
+    
     final othersOffers = service.peerResources.values
         .where((r) => r.userId != service.userName && r.isOffering)
         .toList();
@@ -175,8 +171,6 @@ class _NeedTab extends StatelessWidget {
   }
 }
 
-// ─── Resource selection grid ─────────────────────────────────────────────────
-
 class _ResourceGrid extends StatefulWidget {
   final NearbyService service;
   final bool isOffering;
@@ -191,13 +185,13 @@ class _ResourceGrid extends StatefulWidget {
 }
 
 class _ResourceGridState extends State<_ResourceGrid> {
-  // Locally selected (pending) types — NOT yet broadcast
+  
   final Set<ResourceType> _pending = {};
 
   Future<void> _confirm(BuildContext context) async {
     if (_pending.isEmpty) return;
     final types = Set<ResourceType>.from(_pending);
-    setState(() => _pending.clear()); // reset chips immediately
+    setState(() => _pending.clear()); 
 
     for (final type in types) {
       final myLoc = widget.service.myLocation;
@@ -338,11 +332,9 @@ class _ResourceChip extends StatelessWidget {
   }
 }
 
-// ─── Resource list tile (shows peer resources with distance) ─────────────────
-
 class _ResourceListTile extends StatelessWidget {
   final ResourceBroadcast resource;
-  final dynamic myLocation; // LocationUpdate?
+  final dynamic myLocation; 
 
   const _ResourceListTile({
     required this.resource,

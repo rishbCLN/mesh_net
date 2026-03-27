@@ -2,8 +2,6 @@ import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'nearby_service.dart';
 
-/// Handles local notifications for Roll Call and SOS alerts.
-/// Roll call notifications include "I'm Safe" and "Need Help" action buttons.
 class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
@@ -30,7 +28,7 @@ class NotificationService {
       onDidReceiveNotificationResponse: _onNotificationAction,
     );
 
-    // Request notification permission on Android 13+
+    
     _plugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
@@ -46,7 +44,7 @@ class NotificationService {
     } else if (actionId == 'roll_call_help') {
       _nearby?.respondToRollCall('needHelp');
     }
-    // Dismiss the notification after action
+    
     _plugin.cancel(_rollCallNotificationId);
   }
 

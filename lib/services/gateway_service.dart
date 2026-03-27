@@ -7,11 +7,11 @@ import 'storage_service.dart';
 import 'nearby_service.dart';
 
 enum GatewayStatus {
-  idle,          // Monitoring, no signal escaped yet
-  attempting,    // SMS sending / upload in progress
-  smsSent,       // SMS successfully sent
-  internetUploaded, // Data uploaded to server
-  rescueHandoff,   // Rescue team connected, census dumped
+  idle,          
+  attempting,    
+  smsSent,       
+  internetUploaded, 
+  rescueHandoff,   
 }
 
 class GatewayService extends ChangeNotifier {
@@ -22,7 +22,7 @@ class GatewayService extends ChangeNotifier {
   GatewayStatus _status = GatewayStatus.idle;
   GatewayStatus get status => _status;
 
-  /// Human-readable log of gateway events
+  
   final List<String> eventLog = [];
 
   GatewayService({
@@ -32,7 +32,7 @@ class GatewayService extends ChangeNotifier {
         internet = InternetGatewayService(storage: storage, nearby: nearby),
         rescue = RescueBridgeService(storage: storage, nearby: nearby);
 
-  /// Call once at app start — all layers begin passive monitoring.
+  
   Future<void> initialize() async {
     final prefs = await SharedPreferences.getInstance();
     final contacts = prefs.getStringList('emergency_contacts') ?? [];
@@ -47,12 +47,12 @@ class GatewayService extends ChangeNotifier {
         : InternetGatewayService.defaultBinKey;
     internet.startMonitoring();
 
-    // RescueBridge is event-driven — triggered by NearbyService peer events
+    
     _addLog('Gateway monitoring started');
     notifyListeners();
   }
 
-  /// Called when Hard SOS Mode activates — all layers attempt immediately.
+  
   Future<void> hardSOSActivated() async {
     _status = GatewayStatus.attempting;
     _addLog('Hard SOS — firing all channels');
@@ -63,7 +63,7 @@ class GatewayService extends ChangeNotifier {
       internet.forceUpload(),
     ]);
 
-    // Update status based on results
+    
     if (sms.smsSent) {
       _status = GatewayStatus.smsSent;
       _addLog('SMS distress sent');
@@ -79,7 +79,7 @@ class GatewayService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Called by NearbyService on new peer connection.
+  
   Future<void> onPeerConnected(String peerId, String peerName) async {
     await rescue.onPeerConnected(peerId, peerName);
     if (rescue.handoffsCompleted > 0) {
@@ -89,7 +89,7 @@ class GatewayService extends ChangeNotifier {
     }
   }
 
-  /// Save emergency contacts to prefs and update SMS service.
+  
   Future<void> saveEmergencyContacts(List<String> contacts) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('emergency_contacts', contacts);
@@ -97,7 +97,7 @@ class GatewayService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Save gateway URL to prefs and update internet service.
+  
   Future<void> saveGatewayUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('gateway_url', url);
@@ -105,7 +105,7 @@ class GatewayService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Save JSONBin API key to prefs and update internet service.
+  
   Future<void> saveJsonBinApiKey(String key) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('jsonbin_api_key', key);

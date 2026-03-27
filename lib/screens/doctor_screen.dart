@@ -76,7 +76,7 @@ class _DoctorScreenState extends State<DoctorScreen> {
             ),
             body: Column(
               children: [
-                // Disclaimer banner
+                
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -96,7 +96,7 @@ class _DoctorScreenState extends State<DoctorScreen> {
                   ),
                 ),
 
-                // Message list
+                
                 Expanded(
                   child: session.messages.isEmpty
                       ? _buildWelcome()
@@ -110,19 +110,19 @@ class _DoctorScreenState extends State<DoctorScreen> {
                               return _buildMessageBubble(
                                   session.messages[index], doctor);
                             }
-                            // Condition selection cards
+                            
                             return _buildConditionCards(
                                 session.classificationResults, doctor);
                           },
                         ),
                 ),
 
-                // Input bar
+                
                 if (session.phase == DoctorPhase.input ||
                     session.phase == DoctorPhase.protocol)
                   _buildInputBar(doctor),
 
-                // Loading indicator
+                
                 if (session.phase == DoctorPhase.classifying)
                   const Padding(
                     padding: EdgeInsets.all(16),
@@ -219,7 +219,7 @@ class _DoctorScreenState extends State<DoctorScreen> {
           crossAxisAlignment:
               isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            // Triage color banner
+            
             if (triageColor != null && !isUser)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -256,7 +256,7 @@ class _DoctorScreenState extends State<DoctorScreen> {
                 ),
               ),
 
-            // Message bubble
+            
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
@@ -285,7 +285,7 @@ class _DoctorScreenState extends State<DoctorScreen> {
               ),
             ),
 
-            // Quick-reply option buttons (for tree navigation)
+            
             if (msg.options != null && !isUser)
               Padding(
                 padding: const EdgeInsets.only(top: 6),

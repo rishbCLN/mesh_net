@@ -1,12 +1,10 @@
 import 'dart:math';
 import '../services/medical_db_service.dart';
 
-/// Normalises free-text input to canonical symptom terms using a 3-pass
-/// matching strategy: exact → contains → fuzzy (Levenshtein).
 class SymptomNormalizer {
   final MedicalDbService _db;
 
-  /// Cached phrases: {lowercase_phrase: {condition_id, canonical}}
+  
   List<_PhraseRow>? _phrases;
 
   SymptomNormalizer(this._db);
@@ -17,7 +15,7 @@ class SymptomNormalizer {
     final results = <NormalizedSymptom>[];
     final seen = <String>{};
 
-    // Pass 1: Exact match
+    
     for (final p in _phrases!) {
       if (p.phrase == lower && seen.add(p.canonical)) {
         results.add(NormalizedSymptom(
@@ -29,7 +27,7 @@ class SymptomNormalizer {
       }
     }
 
-    // Pass 2: Contains match
+    
     if (results.isEmpty) {
       for (final p in _phrases!) {
         if (lower.contains(p.phrase) || p.phrase.contains(lower)) {
@@ -47,7 +45,7 @@ class SymptomNormalizer {
       }
     }
 
-    // Pass 3: Fuzzy / Levenshtein
+    
     if (results.isEmpty) {
       final words = lower.split(RegExp(r'\s+'));
       for (final p in _phrases!) {

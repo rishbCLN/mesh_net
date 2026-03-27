@@ -48,11 +48,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     )..repeat(reverse: true);
     
     _initializeApp();
-    // Refresh time-ago labels every 10 seconds
+    
     _timeAgoTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted) setState(() {});
     });
-    // Listen for NearbyService changes to auto-refresh
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _nearbyRef = Provider.of<NearbyService>(context, listen: false);
       _nearbyRef!.addListener(_onServiceChanged);
@@ -72,14 +72,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _initializeApp() async {
-    // Request all required runtime permissions before starting mesh services
+    
     await _requestNearbyPermissions();
 
     final prefs = await SharedPreferences.getInstance();
     String? userName = prefs.getString('userName');
 
     if (userName == null || userName.isEmpty) {
-      // Prompt for username
+      
       userName = await _showNameDialog();
       if (userName != null && userName.isNotEmpty) {
         await prefs.setString('userName', userName);
@@ -89,10 +89,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     }
 
-    // Fire mesh init in the background -- UI should not wait for it
+    
     if (mounted) {
       final nearbyService = Provider.of<NearbyService>(context, listen: false);
-      // Do NOT await -- set initialized immediately so the screen loads
+      
       nearbyService.init(userName).catchError((e) {
         debugPrint('NearbyService init error: $e');
       });
@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _requestNearbyPermissions() async {
-    // Nearby Connections needs Location + WiFi + Bluetooth (BLE for peer discovery)
+    
     final permissions = [
       Permission.location,
       Permission.nearbyWifiDevices,
@@ -284,7 +284,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      // Mesh error / retry banner
+                      
                       if (nearbyService.meshError != null)
                         Card(
                           color: Colors.orange.shade100,
@@ -329,14 +329,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ),
                         ),
-                      // -- My Triage Status ------------------------------
-                      // Gateway escape status bar
+                      
+                      
                       const GatewayStatusBar(),
                       const SizedBox(height: 12),
                       _MyStatusCard(service: nearbyService),
                       const SizedBox(height: 16),
 
-                      // Nearby Devices Section
+                      
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -385,7 +385,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ),
                       const SizedBox(height: 16),
                       
-                      // Recent Messages Section
+                      
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -439,7 +439,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ),
                       const SizedBox(height: 24),
 
-                      // Map + Chat side by side
+                      
                       Row(
                         children: [
                           Expanded(
@@ -509,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ],
                       ),
                       const SizedBox(height: 12),
-                      // Network topology button (full width)
+                      
                       ElevatedButton.icon(
                         icon: const Icon(Icons.device_hub_rounded),
                         onPressed: () {
@@ -533,7 +533,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       const SizedBox(height: 12),
-                      // Roll Call button
+                      
                       AnimatedBuilder(
                         animation: _pulseController,
                         builder: (context, child) {
@@ -588,7 +588,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         },
                       ),
                       const SizedBox(height: 12),
-                      // Resources button
+                      
                       ElevatedButton.icon(
                         icon: const Icon(Icons.inventory_2_rounded),
                         onPressed: () {
@@ -612,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       const SizedBox(height: 12),
-                      // Local Doctor button
+                      
                       ElevatedButton.icon(
                         icon: const Icon(Icons.medical_services_rounded),
                         onPressed: () {
@@ -636,7 +636,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       const SizedBox(height: 12),
-                      // Generate Report button
+                      
                       ElevatedButton.icon(
                         icon: const Icon(Icons.assessment_rounded),
                         onPressed: () {
@@ -659,11 +659,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      const SizedBox(height: 80), // space so content isn't hidden behind SOS bar
+                      const SizedBox(height: 80), 
                     ],
                   ),
                 ),
-              // Roll call overlay is now handled globally by RollCallScheduler
+              
             ],
           ),
           bottomNavigationBar: SafeArea(
@@ -722,8 +722,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 }
-
-// --- My Status card ------------------------------------------------------------
 
 class _MyStatusCard extends StatelessWidget {
   final NearbyService service;
@@ -805,8 +803,6 @@ class _MyStatusCard extends StatelessWidget {
   }
 }
 
-// ── Incoming roll call full-screen overlay ──────────────────────────────────
-
 class _RollCallResponderOverlay extends StatefulWidget {
   final IncomingRollCall rollCall;
   final NearbyService service;
@@ -870,7 +866,7 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Pulsing siren icon
+                  
                   Container(
                     width: 72,
                     height: 72,
@@ -891,7 +887,7 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                   ),
                   const SizedBox(height: 20),
 
-                  // Title
+                  
                   const Text(
                     'ROLL CALL',
                     style: TextStyle(
@@ -910,7 +906,7 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                   ),
                   const SizedBox(height: 32),
 
-                  // Countdown
+                  
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24, vertical: 12),
@@ -939,14 +935,14 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                   ),
                   const SizedBox(height: 40),
 
-                  // Response buttons
+                  
                   if (_responding)
                     const CircularProgressIndicator(
                         color: Colors.deepPurpleAccent)
                   else
                     Row(
                       children: [
-                        // I'M SAFE
+                        
                         Expanded(
                           child: GestureDetector(
                             onTap: () => _respond('safe'),
@@ -988,7 +984,7 @@ class _RollCallResponderOverlayState extends State<_RollCallResponderOverlay>
                           ),
                         ),
                         const SizedBox(width: 16),
-                        // NEED HELP
+                        
                         Expanded(
                           child: GestureDetector(
                             onTap: () => _respond('needHelp'),

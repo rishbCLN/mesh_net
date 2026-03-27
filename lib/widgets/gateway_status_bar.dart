@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/gateway_service.dart';
 
-/// Thin bar showing gateway escape status. Sits at the top of the home screen.
 class GatewayStatusBar extends StatelessWidget {
   const GatewayStatusBar({super.key});
 
@@ -138,7 +137,7 @@ class _GatewayDetailSheet extends StatelessWidget {
             style: TextStyle(fontSize: 12, color: Colors.white54),
           ),
           const SizedBox(height: 16),
-          // Layer statuses
+          
           _LayerRow(
             icon: Icons.sms_rounded,
             label: 'SMS Burst',
@@ -170,7 +169,7 @@ class _GatewayDetailSheet extends StatelessWidget {
             color: gw.rescue.handoffsCompleted > 0 ? Colors.blue : Colors.grey,
           ),
           const SizedBox(height: 16),
-          // Event log
+          
           if (gw.eventLog.isNotEmpty) ...[
             const Text('Event Log',
                 style: TextStyle(
@@ -196,7 +195,7 @@ class _GatewayDetailSheet extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 12),
-          // Force send button
+          
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -213,7 +212,7 @@ class _GatewayDetailSheet extends StatelessWidget {
               },
             ),
           ),
-          // Settings button
+          
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
@@ -281,8 +280,6 @@ class _LayerRow extends StatelessWidget {
     );
   }
 }
-
-// ── Gateway Settings Screen ─────────────────────────────────────────────────
 
 class GatewaySettingsScreen extends StatefulWidget {
   const GatewaySettingsScreen({super.key});
@@ -361,7 +358,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Device Role
+          
           const Text('Device Role',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 4),
@@ -381,7 +378,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          // SMS Emergency Contacts
+          
           const Text('SMS Emergency Contacts',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 4),
@@ -397,7 +394,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
           _PhoneField(controller: _contact3, label: 'Contact 3'),
           const SizedBox(height: 24),
 
-          // Internet Gateway URL
+          
           const Text('JSONBin.io Gateway',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 4),

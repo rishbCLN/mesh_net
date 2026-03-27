@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-/// A pre-defined list of key buildings/locations in the demo area.
-/// These render as large readable labels on top of MBTiles.
 class BuildingLabel {
   final String name;
   final LatLng position;
@@ -24,8 +22,6 @@ enum BuildingType {
   entrance,
 }
 
-// ── Pre-define demo area buildings here ──────────────────────────────────────
-// VIT Vellore campus landmarks (12.9692° N, 79.1559° E)
 const List<BuildingLabel> kDemoBuildingLabels = [
   BuildingLabel(
     name: 'Tech Tower',
@@ -117,7 +113,7 @@ class _BuildingLabelWidget extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Label chip — high contrast, large text
+        
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -153,13 +149,13 @@ class _BuildingLabelWidget extends StatelessWidget {
             ],
           ),
         ),
-        // Pointer line down to the location
+        
         Container(
           width: 2,
           height: 8,
           color: _bgColor,
         ),
-        // Dot at exact GPS point
+        
         Container(
           width: 8,
           height: 8,

@@ -1,18 +1,15 @@
-/// START triage decision tree for guiding untrained users through medical triage.
-///
-/// Based on the START (Simple Triage And Rapid Treatment) protocol used
-/// by first responders worldwide.
+
 
 import '../models/triage_status.dart';
 
 class TriageNode {
   final String question;
-  final String? detail;        // extra guidance text
-  final String yesLabel;       // custom label for Yes button
-  final String noLabel;        // custom label for No button
+  final String? detail;        
+  final String yesLabel;       
+  final String noLabel;        
   final TriageNode? onYes;
   final TriageNode? onNo;
-  final TriageStatus? result;  // non-null if this is a leaf
+  final TriageStatus? result;  
 
   const TriageNode({
     required this.question,
@@ -27,7 +24,6 @@ class TriageNode {
   bool get isLeaf => result != null;
 }
 
-/// The root of the START triage decision tree.
 final TriageNode triageDecisionTree = TriageNode(
   question: 'Can the person walk?',
   detail: 'If they can stand and move on their own, even with difficulty.',

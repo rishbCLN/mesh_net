@@ -42,7 +42,7 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Initialize gateway after first frame so Provider is available
+    
     WidgetsBinding.instance.addPostFrameCallback((_) => _initGateway());
   }
 
@@ -53,23 +53,23 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
     _gatewayService = GatewayService(storage: storage, nearby: nearby);
     _gatewayService!.initialize();
 
-    // Connect DangerZoneService ↔ NearbyService
+    
     nearby.dangerZoneService = dangerZone;
     dangerZone.loadFromStorage();
 
-    // Hook peer connection events to gateway
+    
     nearby.onPeerConnectedCallback = (peerId, peerName) async {
       await _gatewayService!.onPeerConnected(peerId, peerName);
     };
 
-    // Start the 5-minute auto roll call scheduler
+    
     _rollCallScheduler = RollCallScheduler(nearby);
     _rollCallScheduler!.navigatorKey = _navigatorKey;
     _rollCallScheduler!.start();
 
     setState(() {});
 
-    // Initialize notification service (non-blocking — UI is already loaded)
+    
     NotificationService.instance.initialize(nearby).catchError((e) {
       debugPrint('Notification init error: $e');
     });
@@ -91,8 +91,8 @@ class _MeshLifecycleRootState extends State<_MeshLifecycleRoot>
       return;
     }
 
-    // Do NOT disconnect on pause/hidden — keep mesh alive while screen is off.
-    // Only reconnect if the service stopped for some other reason.
+    
+    
     if (state == AppLifecycleState.resumed && !service.isRunning) {
       _resumeMesh(service);
     }

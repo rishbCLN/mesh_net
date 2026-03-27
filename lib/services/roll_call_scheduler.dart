@@ -3,9 +3,6 @@ import 'package:flutter/material.dart';
 import '../services/nearby_service.dart';
 import '../services/notification_service.dart';
 
-/// Schedules automatic roll calls every 5 minutes and shows a global
-/// full-screen overlay whenever an incoming roll call is received,
-/// regardless of which screen the user is on.
 class RollCallScheduler {
   RollCallScheduler(this._nearby);
 
@@ -13,7 +10,7 @@ class RollCallScheduler {
   Timer? _timer;
   OverlayEntry? _overlayEntry;
 
-  /// Start the 5-minute periodic roll call timer.
+  
   void start() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(minutes: 5), (_) {
@@ -21,7 +18,7 @@ class RollCallScheduler {
         _nearby.startRollCall();
       }
     });
-    // Also listen for incoming roll calls to show global overlay
+    
     _nearby.addListener(_onNearbyChanged);
   }
 
@@ -31,13 +28,13 @@ class RollCallScheduler {
     _removeOverlay();
   }
 
-  // The overlay key lets us insert on top of all routes.
+  
   late final GlobalKey<NavigatorState> navigatorKey;
 
   void _onNearbyChanged() {
     if (_nearby.incomingRollCall != null && _overlayEntry == null) {
       _showOverlay();
-      // Also show notification with action buttons
+      
       NotificationService.instance.showRollCallNotification(
         _nearby.incomingRollCall?.coordinatorName ?? 'Someone',
       );
@@ -65,7 +62,6 @@ class RollCallScheduler {
   }
 }
 
-/// Full-screen roll call responder overlay shown on top of everything.
 class _GlobalRollCallOverlay extends StatefulWidget {
   final NearbyService service;
   final VoidCallback onDismiss;

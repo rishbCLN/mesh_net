@@ -7,15 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'dart:io';
 
-/// Serves map tiles from a bundled .mbtiles file (SQLite database).
-/// OFFLINE ONLY — never fetches tiles from the internet under any circumstance.
-/// Missing tiles render as solid dark background.
 class MBTilesTileProvider extends TileProvider {
   Database? _db;
   bool _initialized = false;
   bool _hasAsset = false;
 
-  /// Copy bundled .mbtiles from assets to documents dir, then open.
+  
   Future<void> initialize() async {
     if (_initialized) return;
 
@@ -29,7 +26,7 @@ class MBTilesTileProvider extends TileProvider {
         await File(dbPath).writeAsBytes(bytes, flush: true);
         _hasAsset = true;
       } catch (_) {
-        // No bundled asset — dark fallback tiles only, never internet
+        
         _hasAsset = false;
         _initialized = true;
         return;
@@ -68,7 +65,7 @@ class _MBTilesImageProvider extends ImageProvider<_MBTilesImageProvider> {
   final Database db;
   final int x, y, z;
 
-  // MBTiles uses TMS y-axis (flipped from XYZ/slippy standard)
+  
   int get tmsY => (1 << z) - 1 - y;
 
   const _MBTilesImageProvider({
@@ -108,8 +105,8 @@ class _MBTilesImageProvider extends ImageProvider<_MBTilesImageProvider> {
     }
   }
 
-  /// Returns a solid 256×256 dark tile for missing/errored tiles.
-  /// Never fetches from internet — this is the only fallback.
+  
+  
   static Future<ImageInfo> _darkFallbackTile() async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
@@ -133,8 +130,6 @@ class _MBTilesImageProvider extends ImageProvider<_MBTilesImageProvider> {
   int get hashCode => Object.hash(x, y, z);
 }
 
-/// Dark fallback tile provider when no MBTiles database is loaded.
-/// Returns solid dark tiles — never makes any network request.
 class _DarkFallbackTileProvider extends ImageProvider<_DarkFallbackTileProvider> {
   @override
   Future<_DarkFallbackTileProvider> obtainKey(ImageConfiguration config) async => this;

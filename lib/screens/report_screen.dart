@@ -47,7 +47,7 @@ class _ReportScreenState extends State<ReportScreen> {
     buf.writeln('Reporter: ${service.userName}');
     buf.writeln();
 
-    // ─── Location summary ──────────────────────────────────────────────
+    
     final peers = service.peerLocations.values.toList();
     final totalLocated = peers.length + (service.myLocation != null ? 1 : 0);
     buf.writeln('── SURVIVORS LOCATED: $totalLocated ──');
@@ -70,7 +70,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
     buf.writeln();
 
-    // ─── Triage breakdown ──────────────────────────────────────────────
+    
     buf.writeln('── TRIAGE BREAKDOWN ──');
     buf.writeln();
 
@@ -87,7 +87,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
     buf.writeln();
 
-    // ─── Connected devices ─────────────────────────────────────────────
+    
     buf.writeln('── MESH NETWORK ──');
     buf.writeln();
     buf.writeln('  Connected devices: ${service.connectedDevices.length}');
@@ -95,7 +95,7 @@ class _ReportScreenState extends State<ReportScreen> {
     buf.writeln('  Messages routed: ${service.totalMessagesRouted}');
     buf.writeln();
 
-    // ─── SOS messages ──────────────────────────────────────────────────
+    
     final sosMessages = _messages.where((m) => m.isSOS).toList();
     buf.writeln('── SOS ALERTS: ${sosMessages.length} ──');
     buf.writeln();
@@ -110,7 +110,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
     buf.writeln();
 
-    // ─── Resource summary ──────────────────────────────────────────────
+    
     final offers = service.peerResources.values.where((r) => r.isOffering).toList();
     final needs = service.peerResources.values.where((r) => !r.isOffering).toList();
     buf.writeln('── RESOURCES ──');
@@ -195,7 +195,7 @@ class _ReportScreenState extends State<ReportScreen> {
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // Summary cards row
+              
               Row(
                 children: [
                   _SummaryCard(
@@ -222,7 +222,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Triage breakdown
+              
               const Text(
                 'TRIAGE BREAKDOWN',
                 style: TextStyle(
@@ -289,7 +289,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
               const SizedBox(height: 24),
 
-              // Survivor list
+              
               const Text(
                 'SURVIVOR LOCATIONS',
                 style: TextStyle(
@@ -316,7 +316,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
               const SizedBox(height: 24),
 
-              // Full text report
+              
               const Text(
                 'FULL TEXT REPORT',
                 style: TextStyle(
@@ -348,7 +348,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Share button
+              
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -373,8 +373,6 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 }
-
-// ─── Summary card ────────────────────────────────────────────────────────────
 
 class _SummaryCard extends StatelessWidget {
   final String label;
@@ -425,8 +423,6 @@ class _SummaryCard extends StatelessWidget {
     );
   }
 }
-
-// ─── Survivor tile ───────────────────────────────────────────────────────────
 
 class _SurvivorTile extends StatelessWidget {
   final String name;

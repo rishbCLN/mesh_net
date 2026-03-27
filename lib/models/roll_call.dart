@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-// ─── Status of an individual entry ───────────────────────────────────────────
-
 enum RollCallEntryStatus { pending, safe, needHelp, unknown }
 
 extension RollCallEntryStatusX on RollCallEntryStatus {
@@ -14,17 +12,17 @@ extension RollCallEntryStatusX on RollCallEntryStatus {
     }
   }
 
-  // ⚡ accent colour used in the coordinator roster
+  
   int get colorValue {
     switch (this) {
-      case RollCallEntryStatus.pending:  return 0xFFFFB300; // amber
-      case RollCallEntryStatus.safe:     return 0xFF43A047; // green
-      case RollCallEntryStatus.needHelp: return 0xFFE53935; // red
-      case RollCallEntryStatus.unknown:  return 0xFF757575; // grey
+      case RollCallEntryStatus.pending:  return 0xFFFFB300; 
+      case RollCallEntryStatus.safe:     return 0xFF43A047; 
+      case RollCallEntryStatus.needHelp: return 0xFFE53935; 
+      case RollCallEntryStatus.unknown:  return 0xFF757575; 
     }
   }
 
-  String get jsonValue => name; // 'pending' | 'safe' | 'needHelp' | 'unknown'
+  String get jsonValue => name; 
 
   static RollCallEntryStatus fromJson(String? v) {
     switch (v) {
@@ -36,8 +34,6 @@ extension RollCallEntryStatusX on RollCallEntryStatus {
   }
 }
 
-// ─── One row in the coordinator roster ───────────────────────────────────────
-
 class RollCallEntry {
   final String name;
   RollCallEntryStatus status;
@@ -47,15 +43,13 @@ class RollCallEntry {
       : status = RollCallEntryStatus.pending;
 }
 
-// ─── Live coordinator session ─────────────────────────────────────────────────
-
 class RollCallSession {
   final String id;
   final String coordinatorName;
   final DateTime startedAt;
   final DateTime deadline;
   int round;
-  final Map<String, RollCallEntry> entries; // keyed by responder name
+  final Map<String, RollCallEntry> entries; 
 
   RollCallSession({
     required this.id,
@@ -75,13 +69,11 @@ class RollCallSession {
   bool get allResponded => pendingCount == 0;
 }
 
-// ─── Incoming roll call (responder side) ─────────────────────────────────────
-
 class IncomingRollCall {
   final String id;
   final String coordinatorName;
   final DateTime receivedAt;
-  final int deadlineSecs; // seconds the responder has to reply
+  final int deadlineSecs; 
 
   IncomingRollCall({
     required this.id,
@@ -90,8 +82,6 @@ class IncomingRollCall {
     required this.deadlineSecs,
   });
 }
-
-// ─── Wire-format codec ────────────────────────────────────────────────────────
 
 class RollCallPacket {
   final String id;
@@ -140,7 +130,7 @@ class RollCallPacket {
 class RollCallReplyPacket {
   final String rollCallId;
   final String responderName;
-  final String status; // 'safe' | 'needHelp'
+  final String status; 
   final int hops;
   static const int maxHops = 5;
 

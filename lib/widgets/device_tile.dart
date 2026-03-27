@@ -5,7 +5,7 @@ import '../models/triage_status.dart';
 class DeviceTile extends StatelessWidget {
   final Device device;
 
-  /// Optional triage status received via location broadcast from this peer.
+  
   final TriageStatus? triageStatus;
 
   const DeviceTile({

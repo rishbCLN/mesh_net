@@ -1,12 +1,11 @@
 import '../services/medical_db_service.dart';
 
-/// Fetches protocol steps and medications for a given condition.
 class ProtocolFetcher {
   final MedicalDbService _db;
 
   ProtocolFetcher(this._db);
 
-  /// Get ordered protocol steps for a condition.
+  
   Future<List<ProtocolStep>> getProtocol(int conditionId) async {
     final rows = await _db.query(
       'protocols',
@@ -24,7 +23,7 @@ class ProtocolFetcher {
         .toList();
   }
 
-  /// Get medications for a condition.
+  
   Future<List<Medication>> getMedications(int conditionId) async {
     final rows = await _db.query(
       'medications',
@@ -41,7 +40,7 @@ class ProtocolFetcher {
         .toList();
   }
 
-  /// Get condition summary.
+  
   Future<Map<String, dynamic>?> getCondition(int conditionId) async {
     final rows = await _db.query(
       'conditions',

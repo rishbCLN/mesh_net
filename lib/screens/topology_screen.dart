@@ -4,16 +4,12 @@ import 'package:provider/provider.dart';
 import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 
-// --- Data classes -------------------------------------------------------------
-
 class _NodeState {
   double x, y;
   double vx = 0, vy = 0;
 
   _NodeState(this.x, this.y);
 }
-
-// --- Screen -------------------------------------------------------------------
 
 class TopologyScreen extends StatefulWidget {
   const TopologyScreen({super.key});
@@ -26,11 +22,11 @@ class _TopologyScreenState extends State<TopologyScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ticker;
 
-  // Physics state
+  
   final Map<String, _NodeState> _nodes = {};
   Size _canvasSize = Size.zero;
 
-  // Physics constants
+  
   static const double _kSpringConnected = 0.04;
   static const double _kSpringDiscovered = 0.015;
   static const double _kRepel = 18000.0;
@@ -40,7 +36,7 @@ class _TopologyScreenState extends State<TopologyScreen>
   static const double _kRestDiscovered = 220.0;
   static const double _dt = 0.8;
 
-  // Tooltip
+  
   String? _tappedNodeId;
 
   @override
@@ -48,7 +44,7 @@ class _TopologyScreenState extends State<TopologyScreen>
     super.initState();
     _ticker = AnimationController(
       vsync: this,
-      duration: const Duration(days: 1), // runs indefinitely
+      duration: const Duration(days: 1), 
     )
       ..addListener(_tick)
       ..repeat();
@@ -60,27 +56,27 @@ class _TopologyScreenState extends State<TopologyScreen>
     super.dispose();
   }
 
-  /// One physics integration step, called every animation frame.
+  
   void _tick() {
     if (_canvasSize == Size.zero || !mounted) return;
     final service = Provider.of<NearbyService>(context, listen: false);
     _syncNodes(service);
     _integrate(service);
-    setState(() {}); // repaint
+    setState(() {}); 
   }
 
   String get _meId => 'ME';
 
-  /// Add/remove nodes to match current device lists.
+  
   void _syncNodes(NearbyService service) {
     final cx = _canvasSize.width / 2;
     final cy = _canvasSize.height / 2;
     final rng = Random();
 
-    // Ensure "me" node exists, anchored near centre
+    
     _nodes.putIfAbsent(_meId, () => _NodeState(cx, cy));
 
-    // Connected devices: initialise at random position on inner ring
+    
     for (final d in service.connectedDevices) {
       _nodes.putIfAbsent(d.id, () {
         final angle = rng.nextDouble() * 2 * pi;
@@ -91,7 +87,7 @@ class _TopologyScreenState extends State<TopologyScreen>
       });
     }
 
-    // Discovered devices: outer ring
+    
     for (final d in service.discoveredDevices) {
       _nodes.putIfAbsent(d.id, () {
         final angle = rng.nextDouble() * 2 * pi;
@@ -102,7 +98,7 @@ class _TopologyScreenState extends State<TopologyScreen>
       });
     }
 
-    // Prune disconnected devices
+    
     final validIds = {
       _meId,
       ...service.connectedDevices.map((d) => d.id),
@@ -111,12 +107,12 @@ class _TopologyScreenState extends State<TopologyScreen>
     _nodes.removeWhere((id, _) => !validIds.contains(id));
   }
 
-  /// Run one Euler integration step for all nodes.
+  
   void _integrate(NearbyService service) {
     final cx = _canvasSize.width / 2;
     final cy = _canvasSize.height / 2;
 
-    // Compute forces for every node
+    
     final fx = <String, double>{};
     final fy = <String, double>{};
     for (final id in _nodes.keys) {
@@ -124,7 +120,7 @@ class _TopologyScreenState extends State<TopologyScreen>
       fy[id] = 0;
     }
 
-    // 1. Gravity toward canvas centre (for all nodes)
+    
     for (final entry in _nodes.entries) {
       final id = entry.key;
       final n = entry.value;
@@ -132,14 +128,14 @@ class _TopologyScreenState extends State<TopologyScreen>
       fy[id] = fy[id]! + _kGravity * (cy - n.y);
     }
 
-    // 2. Spring along edges (me â†” connected, me â†” discovered)
+    
     final meNode = _nodes[_meId]!;
     _applySpring(fx, fy, _meId, meNode,
         service.connectedDevices.map((d) => d.id), _kSpringConnected, _kRestConnected);
     _applySpring(fx, fy, _meId, meNode,
         service.discoveredDevices.map((d) => d.id), _kSpringDiscovered, _kRestDiscovered);
 
-    // 3. Repulsion between all node pairs
+    
     final ids = _nodes.keys.toList();
     for (var i = 0; i < ids.length; i++) {
       for (var j = i + 1; j < ids.length; j++) {
@@ -159,7 +155,7 @@ class _TopologyScreenState extends State<TopologyScreen>
       }
     }
 
-    // 4. Integrate + clamp to canvas
+    
     const pad = 40.0;
     for (final entry in _nodes.entries) {
       final id = entry.key;
@@ -251,8 +247,6 @@ class _TopologyScreenState extends State<TopologyScreen>
   }
 }
 
-// --- Stats bar ----------------------------------------------------------------
-
 class _StatsBar extends StatelessWidget {
   final NearbyService service;
   const _StatsBar({required this.service});
@@ -296,8 +290,6 @@ class _Chip extends StatelessWidget {
   }
 }
 
-// --- Painter ------------------------------------------------------------------
-
 class _TopologyPainter extends CustomPainter {
   final Map<String, _NodeState> nodes;
   final String meId;
@@ -305,7 +297,7 @@ class _TopologyPainter extends CustomPainter {
   final String? tappedNodeId;
   final DateTime now;
 
-  static const _kRelayTTL = 4000; // ms -- matches NearbyService._kRelayEventTTL
+  static const _kRelayTTL = 4000; 
 
   _TopologyPainter({
     required this.nodes,
@@ -328,7 +320,7 @@ class _TopologyPainter extends CustomPainter {
       Rect.fromLTWH(0, 0, size.width, size.height),
       Paint()..color = const Color(0xFF0D0D1A),
     );
-    // Subtle radial glow at canvas centre
+    
     final meNode = nodes[meId];
     if (meNode == null) return;
     canvas.drawCircle(
@@ -348,7 +340,7 @@ class _TopologyPainter extends CustomPainter {
     if (meNode == null) return;
     final meOff = Offset(meNode.x, meNode.y);
 
-    // Connected: solid bright edge
+    
     final connectedPaint = Paint()
       ..color = Colors.cyanAccent.withValues(alpha: 0.45)
       ..strokeWidth = 1.8
@@ -360,7 +352,7 @@ class _TopologyPainter extends CustomPainter {
       canvas.drawLine(meOff, Offset(peer.x, peer.y), connectedPaint);
     }
 
-    // Discovered: dashed faint edge
+    
     for (final d in service.discoveredDevices) {
       final peer = nodes[d.id];
       if (peer == null) continue;
@@ -408,7 +400,7 @@ class _TopologyPainter extends CustomPainter {
     for (final event in service.relayEvents) {
       final age = now.difference(event.timestamp).inMilliseconds;
       if (age > _kRelayTTL) continue;
-      final t = age / _kRelayTTL.toDouble(); // 0.0 -> 1.0
+      final t = age / _kRelayTTL.toDouble(); 
 
       final fromNode = nodes[event.fromId];
       final toNode = nodes[event.toId];
@@ -419,18 +411,18 @@ class _TopologyPainter extends CustomPainter {
 
       final opacity = (1.0 - t).clamp(0.0, 1.0);
 
-      // First half: fromId -> me
-      // Second half: me -> toId
+      
+      
       Offset dotPos;
       if (t < 0.5) {
-        final s = t / 0.5; // 0->1
+        final s = t / 0.5; 
         if (fromNode != null) {
           dotPos = Offset.lerp(Offset(fromNode.x, fromNode.y), meOff, s)!;
         } else {
           dotPos = meOff;
         }
       } else {
-        final s = (t - 0.5) / 0.5; // 0->1
+        final s = (t - 0.5) / 0.5; 
         if (toNode != null) {
           dotPos = Offset.lerp(meOff, Offset(toNode.x, toNode.y), s)!;
         } else {
@@ -438,13 +430,13 @@ class _TopologyPainter extends CustomPainter {
         }
       }
 
-      // Glow
+      
       canvas.drawCircle(
         dotPos,
         12,
         Paint()..color = color.withValues(alpha: opacity * 0.25),
       );
-      // Core
+      
       canvas.drawCircle(
         dotPos,
         5,
@@ -460,7 +452,7 @@ class _TopologyPainter extends CustomPainter {
       final isMe = id == meId;
       final isTapped = id == tappedNodeId;
 
-      // Resolve device info
+      
       String label;
       Color baseColor;
       TriageStatus? triage;
@@ -489,7 +481,7 @@ class _TopologyPainter extends CustomPainter {
       final pos = Offset(node.x, node.y);
       final radius = isMe ? 22.0 : 15.0;
 
-      // Tapped glow
+      
       if (isTapped) {
         canvas.drawCircle(
           pos,
@@ -498,7 +490,7 @@ class _TopologyPainter extends CustomPainter {
         );
       }
 
-      // Triage colour outer ring
+      
       if (triage != null && triage != TriageStatus.ok) {
         canvas.drawCircle(
           pos,
@@ -510,31 +502,31 @@ class _TopologyPainter extends CustomPainter {
         );
       }
 
-      // Soft glow halo
+      
       canvas.drawCircle(
         pos,
         radius + 6,
         Paint()..color = baseColor.withValues(alpha: 0.18),
       );
 
-      // Shadow
+      
       canvas.drawCircle(
         pos + const Offset(2, 2),
         radius,
         Paint()..color = Colors.black38,
       );
 
-      // Main node fill
+      
       canvas.drawCircle(pos, radius, Paint()..color = baseColor.withValues(alpha: 0.9));
 
-      // Inner highlight
+      
       canvas.drawCircle(
         pos - Offset(radius * 0.25, radius * 0.25),
         radius * 0.35,
         Paint()..color = Colors.white.withValues(alpha: 0.2),
       );
 
-      // Icon for "me"
+      
       if (isMe) {
         final tp = TextPainter(
           text: const TextSpan(
@@ -550,10 +542,10 @@ class _TopologyPainter extends CustomPainter {
         tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
       }
 
-      // Label below node
+      
       _drawLabel(canvas, label, pos, radius, baseColor, triage);
 
-      // Tooltip on tap
+      
       if (isTapped) {
         _drawTooltip(canvas, pos, radius, label, triage, isMe, service);
       }
@@ -577,7 +569,7 @@ class _TopologyPainter extends CustomPainter {
     )..layout();
     tp.paint(canvas, Offset(pos.dx - tp.width / 2, pos.dy + radius + 4));
 
-    // Triage badge under label
+    
     if (triage != null && triage != TriageStatus.ok) {
       final badgeTp = TextPainter(
         text: TextSpan(
@@ -651,6 +643,6 @@ class _TopologyPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TopologyPainter old) => true; // always repaint while ticker runs
+  bool shouldRepaint(_TopologyPainter old) => true; 
 }
 

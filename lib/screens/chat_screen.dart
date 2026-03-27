@@ -38,7 +38,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, bool> _audioPlaying = {};
   final Map<String, Duration> _audioPositions = {};
   final Map<String, Duration> _audioDurations = {};
-  // Cache for resolved location labels
+  
   final Map<String, String> _locationLabelCache = {};
 
   @override
@@ -46,17 +46,17 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _loadMessages();
 
-    // Refresh messages every 2 seconds as fallback
+    
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _loadMessages();
     });
-    // Refresh time-ago labels every 10 seconds
+    
     _timeAgoTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted) setState(() {});
     });
 
-    // Register a direct listener so new messages appear the instant
-    // NearbyService notifies (peer messages, own sent messages, etc.)
+    
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _nearbyRef = Provider.of<NearbyService>(context, listen: false);
       _nearbyRef!.addListener(_onServiceChanged);
@@ -309,7 +309,6 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _audioPlaying[id] = true);
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Consumer<NearbyService>(
@@ -329,7 +328,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           body: Column(
             children: [
-              // Messages list
+              
               Expanded(
                 child: messages.isEmpty
                     ? const Center(
@@ -350,7 +349,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
               ),
               
-              // Recording overlay
+              
               if (_isRecording)
                 GestureDetector(
                   onHorizontalDragUpdate: (details) {
@@ -387,7 +386,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
 
-              // Message input
+              
               if (!_isRecording)
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -403,14 +402,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   child: Row(
                     children: [
-                      // Camera button
+                      
                       IconButton(
                         onPressed: _pickAndSendImage,
                         icon: const Icon(Icons.camera_alt_rounded),
                         color: Colors.cyanAccent,
                         iconSize: 26,
                       ),
-                      // Mic button
+                      
                       IconButton(
                         onPressed: _startVoiceRecording,
                         icon: const Icon(Icons.mic_rounded),
@@ -486,7 +485,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Sender name
+              
               Text(
                 message.senderName,
                 style: TextStyle(
@@ -495,7 +494,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   color: message.isSOS ? Colors.white : Colors.white70,
                 ),
               ),
-              // Location label + battery + coordinates
+              
               if (message.senderLat != null && message.senderLng != null)
                 FutureBuilder<String>(
                   future: _getLocationLabel(message),
@@ -515,7 +514,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   },
                 ),
-              // Battery and location label
+              
               if (message.senderBattery != null || (message.senderLat != null && message.senderLng != null))
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
@@ -549,7 +548,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               const SizedBox(height: 4),
-              // SOS indicator
+              
               if (message.isSOS) ...[
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -576,10 +575,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 const SizedBox(height: 8),
               ],
-              // Content: photo, audio, or text
+              
               _buildMessageContent(message),
               const SizedBox(height: 4),
-              // Timestamp
+              
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 mainAxisSize: MainAxisSize.min,
@@ -624,7 +623,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (message.mediaType == 'audio' && message.mediaPath != null) {
       return _buildAudioContent(message);
     }
-    // Default: text content (including legacy imageBase64)
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -696,7 +695,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ? position.inMilliseconds / duration.inMilliseconds
         : 0.0;
 
-    // Parse duration from content text like "🎤 Voice (30s)"
+    
     final durationMatch = RegExp(r'\((\d+)s\)').firstMatch(message.content);
     final displayDuration = durationMatch != null
         ? '${int.parse(durationMatch.group(1)!) ~/ 60}:${(int.parse(durationMatch.group(1)!) % 60).toString().padLeft(2, '0')}'

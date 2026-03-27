@@ -5,7 +5,6 @@ import '../doctor/condition_classifier.dart';
 import '../doctor/decision_tree_engine.dart';
 import '../doctor/protocol_fetcher.dart';
 
-/// Orchestrates the Local Doctor pipeline and exposes state via ChangeNotifier.
 class DoctorProvider extends ChangeNotifier {
   final MedicalDbService _db = MedicalDbService();
   late final SymptomNormalizer _normalizer;
@@ -23,13 +22,13 @@ class DoctorProvider extends ChangeNotifier {
     _protocolFetcher = ProtocolFetcher(_db);
   }
 
-  /// Reset to initial state.
+  
   void reset() {
     _session = DoctorSession();
     notifyListeners();
   }
 
-  /// User submits free-text symptoms.
+  
   Future<void> submitSymptoms(String text) async {
     _session = _session.copyWith(
       phase: DoctorPhase.classifying,
@@ -100,7 +99,7 @@ class DoctorProvider extends ChangeNotifier {
     }
   }
 
-  /// User selects a condition from classification results.
+  
   Future<void> selectCondition(ClassificationResult result) async {
     _session = _session.copyWith(
       phase: DoctorPhase.treeNavigation,
@@ -112,10 +111,10 @@ class DoctorProvider extends ChangeNotifier {
     );
     notifyListeners();
 
-    // Try to load decision tree
+    
     final tree = await _treeEngine.loadTree(result.conditionId);
     if (tree == null || tree is TreeOutcome) {
-      // No tree or immediate outcome — go straight to protocol
+      
       await _showProtocol(result.conditionId, result.triage);
       return;
     }
@@ -134,7 +133,7 @@ class DoctorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// User answers a decision tree question.
+  
   Future<void> answerTreeQuestion(int optionIndex) async {
     final current = _session.currentTreeNode;
     if (current == null || current is! TreeQuestion) return;
@@ -150,7 +149,7 @@ class DoctorProvider extends ChangeNotifier {
 
     final next = option.next;
     if (next is TreeOutcome) {
-      // Reached outcome
+      
       final triageOverride = next.triage;
       _session = _session.copyWith(
         currentTreeNode: null,
@@ -246,8 +245,6 @@ class DoctorProvider extends ChangeNotifier {
     notifyListeners();
   }
 }
-
-// ── Data classes ────────────────────────────────────────────────────────────
 
 enum DoctorPhase { input, classifying, conditionSelect, treeNavigation, protocol }
 

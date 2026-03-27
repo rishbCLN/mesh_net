@@ -5,8 +5,6 @@ import 'package:provider/provider.dart';
 import '../models/roll_call.dart';
 import '../services/nearby_service.dart';
 
-// --- Coordinator Screen -------------------------------------------------------
-
 class RollCallScreen extends StatefulWidget {
   const RollCallScreen({super.key});
 
@@ -80,7 +78,7 @@ class _RollCallScreenState extends State<RollCallScreen>
           );
         }
 
-        // Check if deadline has been reset (new round)
+        
         final now = DateTime.now();
         final secsLeft = rc.deadline.difference(now).inSeconds.clamp(0, 60);
         final progress = secsLeft / 60.0;
@@ -110,14 +108,14 @@ class _RollCallScreenState extends State<RollCallScreen>
             ),
             body: Column(
               children: [
-                // -- Countdown ring + summary --------------------------------
+                
                 Container(
                   color: const Color(0xFF101828),
                   padding: const EdgeInsets.symmetric(vertical: 20),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // Countdown ring
+                      
                       SizedBox(
                         width: 110,
                         height: 110,
@@ -153,7 +151,7 @@ class _RollCallScreenState extends State<RollCallScreen>
                         ),
                       ),
 
-                      // Response summary
+                      
                       Column(
                         children: [
                           _StatBox(
@@ -180,7 +178,7 @@ class _RollCallScreenState extends State<RollCallScreen>
                   ),
                 ),
 
-                // Auto-repeat notice
+                
                 Container(
                   width: double.infinity,
                   color: Colors.white.withValues(alpha: 0.04),
@@ -194,7 +192,7 @@ class _RollCallScreenState extends State<RollCallScreen>
                   ),
                 ),
 
-                // -- Roster list ---------------------------------------------
+                
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
                   child: Align(
@@ -258,8 +256,6 @@ class _RollCallScreenState extends State<RollCallScreen>
   }
 }
 
-// --- Ring painter -------------------------------------------------------------
-
 class _RingPainter extends CustomPainter {
   final double progress;
   final Color color;
@@ -272,7 +268,7 @@ class _RingPainter extends CustomPainter {
     final cy = size.height / 2;
     final radius = min(cx, cy) - 6;
 
-    // Track
+    
     canvas.drawCircle(
       Offset(cx, cy),
       radius,
@@ -282,7 +278,7 @@ class _RingPainter extends CustomPainter {
         ..strokeWidth = 6,
     );
 
-    // Progress arc
+    
     canvas.drawArc(
       Rect.fromCircle(center: Offset(cx, cy), radius: radius),
       -pi / 2,
@@ -300,8 +296,6 @@ class _RingPainter extends CustomPainter {
   bool shouldRepaint(_RingPainter old) =>
       old.progress != progress || old.color != color;
 }
-
-// --- Roster tile --------------------------------------------------------------
 
 class _RosterTile extends StatelessWidget {
   final RollCallEntry entry;
@@ -386,8 +380,6 @@ class _RosterTile extends StatelessWidget {
     );
   }
 }
-
-// --- Summary widgets ----------------------------------------------------------
 
 class _StatBox extends StatelessWidget {
   final int value;

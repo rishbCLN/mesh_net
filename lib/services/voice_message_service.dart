@@ -16,11 +16,11 @@ class VoiceMessageService {
   bool get isRecording => _isRecording;
   int get elapsedSeconds => _elapsedSeconds;
 
-  /// Called every second during recording with the current elapsed seconds.
+  
   void Function(int seconds)? onDurationUpdate;
 
-  /// Start recording voice in Opus/OGG format.
-  /// Returns when recording is stopped, with the file path or null if cancelled.
+  
+  
   Future<String?> startRecording() async {
     if (_isRecording) return null;
 
@@ -55,7 +55,7 @@ class VoiceMessageService {
     return _recordingCompleter!.future;
   }
 
-  /// Stop recording and return the file path.
+  
   Future<void> stopRecording() async {
     if (!_isRecording) return;
     _isRecording = false;
@@ -67,7 +67,7 @@ class VoiceMessageService {
     _recordingCompleter = null;
   }
 
-  /// Cancel recording without sending.
+  
   Future<void> cancelRecording() async {
     if (!_isRecording) return;
     _isRecording = false;

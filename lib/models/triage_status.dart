@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// START-triage-inspired status every device can broadcast.
 enum TriageStatus {
-  ok,       // Green  — safe and uninjured
-  injured,  // Yellow — minor injury, mobile
-  critical, // Orange — serious injury, needs help
-  sos,      // Red    — trapped / life-threatening
+  ok,       
+  injured,  
+  critical, 
+  sos,      
 }
 
 extension TriageStatusX on TriageStatus {
@@ -29,17 +28,17 @@ extension TriageStatusX on TriageStatus {
 
   Color get color {
     switch (this) {
-      case TriageStatus.ok:       return const Color(0xFF4CAF50); // green
-      case TriageStatus.injured:  return const Color(0xFFFFEB3B); // yellow
-      case TriageStatus.critical: return const Color(0xFFFF9800); // orange
-      case TriageStatus.sos:      return const Color(0xFFF44336); // red
+      case TriageStatus.ok:       return const Color(0xFF4CAF50); 
+      case TriageStatus.injured:  return const Color(0xFFFFEB3B); 
+      case TriageStatus.critical: return const Color(0xFFFF9800); 
+      case TriageStatus.sos:      return const Color(0xFFF44336); 
     }
   }
 
   Color get onColor {
-    // Text that sits on top of the status colour.
+    
     switch (this) {
-      case TriageStatus.injured: return Colors.black87; // yellow bg → dark text
+      case TriageStatus.injured: return Colors.black87; 
       default:                   return Colors.white;
     }
   }
@@ -53,7 +52,7 @@ extension TriageStatusX on TriageStatus {
     }
   }
 
-  String get jsonValue => name; // 'ok' | 'injured' | 'critical' | 'sos'
+  String get jsonValue => name; 
 
   static TriageStatus fromJson(String? value) {
     switch (value) {

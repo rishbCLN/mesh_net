@@ -35,20 +35,20 @@ class _MapScreenState extends State<MapScreen> {
   double _currentZoom = 16.0;
   LatLng _mapCenterDisplay = const LatLng(kVitLat, kVitLng);
 
-  // VIT Vellore campus default center
+  
   static const double kVitLat = 12.9692;
   static const double kVitLng = 79.1559;
 
-  // Last-known location restored from SharedPreferences
+  
   LatLng? _savedLocation;
 
-  // Auto-follow: map center tracks self when true; panning disables it
+  
   bool _followLocation = true;
 
-  // Route path to a selected survivor (null when no route shown)
+  
   List<LatLng>? _routePath;
 
-  // Used to detect when location changes so we auto-move
+  
   LocationUpdate? _prevMyLoc;
 
   @override
@@ -56,16 +56,16 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _initTileProvider();
     _loadSavedLocation();
-    // Removed the 5-second setState timer — map updates via NearbyService listener
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _acquireLocation();
-      // Listen to NearbyService so map auto-follows GPS updates
+      
       final service = Provider.of<NearbyService>(context, listen: false);
       service.addListener(_onServiceLocationUpdate);
     });
   }
 
-  /// Load last-known GPS from SharedPreferences and use as initial map center.
+  
   Future<void> _loadSavedLocation() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -77,7 +77,7 @@ class _MapScreenState extends State<MapScreen> {
             _savedLocation = LatLng(lat, lng);
             _mapCenterDisplay = LatLng(lat, lng);
           });
-          // Move map to last known position as soon as controller is ready
+          
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               try {
@@ -90,22 +90,22 @@ class _MapScreenState extends State<MapScreen> {
     } catch (_) {}
   }
 
-  /// Called every time NearbyService notifies — moves map if following.
+  
   void _onServiceLocationUpdate() {
     if (!mounted) return;
     final service = Provider.of<NearbyService>(context, listen: false);
     final loc = service.myLocation;
     if (loc == null) return;
     if (loc.latitude == 0.0 && loc.longitude == 0.0) return;
-    // Detect first real fix or movement
+    
     if (_prevMyLoc?.latitude == loc.latitude &&
         _prevMyLoc?.longitude == loc.longitude) return;
     _prevMyLoc = loc;
-    // Prefetch surrounding tiles once on first valid GPS fix
+    
     if (_savedLocation == null && _fallbackProvider != null) {
       _prefetchSurroundingTiles(loc.latitude, loc.longitude);
     }
-    // Move map if user hasn't manually panned away
+    
     if (_followLocation) {
       try {
         _mapController.move(LatLng(loc.latitude, loc.longitude), _currentZoom);
@@ -116,8 +116,8 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  /// Download and cache all tiles in a ~1.5 km radius around [lat,lng]
-  /// for zoom levels 14-17.  Runs in background — errors silently ignored.
+  
+  
   void _prefetchSurroundingTiles(double lat, double lng) {
     if (_fallbackProvider == null) return;
     CachedNetworkTileProvider.prefetchArea(
@@ -130,7 +130,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  /// Asynchronously initializes MBTiles + fallback tile providers.
+  
   Future<void> _initTileProvider() async {
     _tileProvider = MBTilesTileProvider();
     await _tileProvider.initialize();
@@ -149,7 +149,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
-    // Remove NearbyService listener
+    
     final service =
         Provider.of<NearbyService>(context, listen: false);
     service.removeListener(_onServiceLocationUpdate);
@@ -274,7 +274,7 @@ class _MapScreenState extends State<MapScreen> {
                     onMapEvent: (event) {
                       if (event is MapEventMoveStart &&
                           event.source != MapEventSource.mapController) {
-                        // User panned manually — stop auto-follow
+                        
                         _followLocation = false;
                       }
                       if (event is MapEventMove) {
@@ -286,7 +286,7 @@ class _MapScreenState extends State<MapScreen> {
                     },
                   ),
                   children: [
-                    // Layer 1: Tiles — MBTiles (fully offline) or cached network
+                    
                     ColorFiltered(
                       colorFilter: const ColorFilter.matrix(<double>[
                         1.2, 0,   0,   0, -20,
@@ -302,13 +302,13 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
 
-                    // Layer 2: Mesh edges — only when GPS fix is available
+                    
                     if (myLoc != null)
                       PolylineLayer(
                         polylines: _buildMeshEdges(myLoc, peers),
                       ),
 
-                    // Layer 2b: Route path to selected survivor
+                    
                     if (_routePath != null && _routePath!.length >= 2)
                       PolylineLayer(
                         polylines: [
@@ -321,24 +321,24 @@ class _MapScreenState extends State<MapScreen> {
                         ],
                       ),
 
-                    // Layer 3: Building labels — only at zoom >= 15
+                    
                     if (_currentZoom >= 15)
                       const BuildingLabelLayer(),
 
-                    // Layer 4: Survivor markers — only when GPS fix is available
+                    
                     if (myLoc != null)
                       MarkerLayer(
                         markers: _buildSurvivorMarkers(myLoc, peers),
                       ),
 
-                    // Layer 5: Danger zone markers
+                    
                     MarkerLayer(
                       markers: _buildDangerMarkers(zones),
                     ),
                   ],
                 ),
 
-                // ── Tile source chip (top-right) ──────────────────────────
+                
                 Positioned(
                   top: 12,
                   right: 12,
@@ -372,7 +372,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
 
-                // ── GPS status chip — shown when no fix yet ──────────────
+                
                 if (myLoc == null || _isAcquiring)
                   Positioned(
                     bottom: 136,
@@ -425,14 +425,14 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ),
 
-                // Legend (top-left)
+                
                 Positioned(
                   top: 12,
                   left: 12,
                   child: _buildLegend(zones.isNotEmpty),
                 ),
 
-                // Coordinates display (bottom-left) — updates as map pans
+                
                 Positioned(
                   bottom: 8,
                   left: 8,
@@ -445,7 +445,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
 
-                // Recenter / follow-me FAB
+                
                 Positioned(
                   bottom: 24,
                   right: 16,
@@ -477,7 +477,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
 
-                // Refresh location FAB
+                
                 Positioned(
                   bottom: 80,
                   right: 16,
@@ -498,7 +498,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  /// Returns the map center: saved GPS > current GPS > VIT default.
+  
   LatLng _mapCenter(LocationUpdate? loc) {
     if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
       return LatLng(loc.latitude, loc.longitude);
@@ -507,7 +507,7 @@ class _MapScreenState extends State<MapScreen> {
     return const LatLng(kVitLat, kVitLng);
   }
 
-  // ─── Mesh Edge Lines ────────────────────────────────────────────────────────
+  
 
   List<Polyline> _buildMeshEdges(
     LocationUpdate myLoc,
@@ -524,7 +524,7 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
-  // ─── Survivor Markers ──────────────────────────────────────────────────────
+  
 
   List<Marker> _buildSurvivorMarkers(
     LocationUpdate myLoc,
@@ -532,7 +532,7 @@ class _MapScreenState extends State<MapScreen> {
   ) {
     final markers = <Marker>[];
 
-    // Self — directional arrow colored by own triage status
+    
     final selfColor = myLoc.triageStatus.color;
     markers.add(Marker(
       point: LatLng(myLoc.latitude, myLoc.longitude),
@@ -547,7 +547,7 @@ class _MapScreenState extends State<MapScreen> {
       ),
     ));
 
-    // Peers — directional arrow colored by triage status
+    
     for (final peer in peers) {
       final color = peer.triageStatus.color;
       markers.add(Marker(
@@ -570,7 +570,7 @@ class _MapScreenState extends State<MapScreen> {
     return markers;
   }
 
-  // ─── Danger Zone Markers ───────────────────────────────────────────────────
+  
 
   List<Marker> _buildDangerMarkers(List<DangerZone> zones) {
     return zones.map((zone) {
@@ -586,7 +586,7 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
-  // ─── Long Press → Add Danger Zone ─────────────────────────────────────────
+  
 
   void _onLongPress(
     BuildContext context,
@@ -620,7 +620,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // ─── Detail Sheets ────────────────────────────────────────────────────────
+  
 
   void _showSurvivorDetail(LocationUpdate peer) {
     final service = Provider.of<NearbyService>(context, listen: false);
@@ -736,7 +736,7 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  // ─── Legend ────────────────────────────────────────────────────────────────
+  
 
   Widget _buildLegend(bool hasDanger) {
     return Container(
@@ -778,7 +778,7 @@ class _MapScreenState extends State<MapScreen> {
         ),
       );
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
+  
 
   static double _distanceMeters(LocationUpdate a, LocationUpdate b) {
     const earthRadius = 6371000.0;
@@ -800,14 +800,9 @@ class _MapScreenState extends State<MapScreen> {
   }
 }
 
-// ─── Directional Marker Widget ──────────────────────────────────────────────
-//
-// A directional arrow that rotates to show heading, colored by triage status.
-// For self: shows a larger pulsing arrow. For peers: a smaller static arrow.
-
 class _DirectionalMarker extends StatefulWidget {
   final Color color;
-  final double heading; // degrees from north (0..360)
+  final double heading; 
   final String label;
   final IconData icon;
   final bool isSelf;
@@ -861,7 +856,7 @@ class _DirectionalMarkerState extends State<_DirectionalMarker>
       ),
     );
 
-    // Pulse ring for self
+    
     if (widget.isSelf && _pulseCtrl != null) {
       arrow = AnimatedBuilder(
         animation: _pulseCtrl!,
@@ -939,15 +934,15 @@ class _ArrowPainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
 
-    // Arrow pointing UP (north) — Triangle with notched tail
+    
     final path = ui.Path()
-      ..moveTo(w * 0.5, 0) // tip (north)
-      ..lineTo(w * 0.85, h * 0.75) // right wing
-      ..lineTo(w * 0.5, h * 0.55) // notch center
-      ..lineTo(w * 0.15, h * 0.75) // left wing
+      ..moveTo(w * 0.5, 0) 
+      ..lineTo(w * 0.85, h * 0.75) 
+      ..lineTo(w * 0.5, h * 0.55) 
+      ..lineTo(w * 0.15, h * 0.75) 
       ..close();
 
-    // White border
+    
     canvas.drawPath(
       path,
       Paint()
@@ -957,7 +952,7 @@ class _ArrowPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round,
     );
 
-    // Filled arrow
+    
     canvas.drawPath(
       path,
       Paint()
@@ -970,8 +965,6 @@ class _ArrowPainter extends CustomPainter {
   bool shouldRepaint(_ArrowPainter oldDelegate) =>
       color != oldDelegate.color || borderColor != oldDelegate.borderColor;
 }
-
-// ─── Danger Zone Marker Widget ──────────────────────────────────────────────
 
 class _DangerZoneMarker extends StatelessWidget {
   final DangerZone zone;
@@ -1020,7 +1013,7 @@ class _DangerZoneMarker extends StatelessWidget {
     return Stack(
       alignment: Alignment.center,
       children: [
-        // Outer ring
+        
         Container(
           width: 64,
           height: 64,
@@ -1037,7 +1030,7 @@ class _DangerZoneMarker extends StatelessWidget {
           ),
         ),
 
-        // Inner: photo thumbnail or icon fallback
+        
         ClipOval(
           child: zone.imageReceived && zone.imageBytes != null
               ? Image.memory(
@@ -1054,7 +1047,7 @@ class _DangerZoneMarker extends StatelessWidget {
                 ),
         ),
 
-        // Loading spinner while chunks arrive
+        
         if (zone.imageId != null && !zone.imageReceived)
           Positioned(
             bottom: 4,
@@ -1076,8 +1069,6 @@ class _DangerZoneMarker extends StatelessWidget {
     );
   }
 }
-
-// ─── Danger Zone Detail Sheet ───────────────────────────────────────────────
 
 class _DangerZoneDetailSheet extends StatelessWidget {
   final DangerZone zone;
@@ -1106,7 +1097,7 @@ class _DangerZoneDetailSheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Full photo
+            
             if (zone.imageReceived && zone.imageBytes != null)
               ClipRRect(
                 borderRadius:
@@ -1137,7 +1128,7 @@ class _DangerZoneDetailSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Type badge
+                  
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 4),
@@ -1231,8 +1222,6 @@ class _DangerZoneDetailSheet extends StatelessWidget {
   }
 }
 
-// ─── Add Danger Zone Sheet ──────────────────────────────────────────────────
-
 class _AddDangerZoneSheet extends StatefulWidget {
   final LatLng location;
   final Future<void> Function(DangerType, String, Uint8List?) onSubmit;
@@ -1294,7 +1283,7 @@ class _AddDangerZoneSheetState extends State<_AddDangerZoneSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Type selector
+          
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1328,7 +1317,7 @@ class _AddDangerZoneSheetState extends State<_AddDangerZoneSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Description
+          
           TextField(
             controller: _descController,
             style: const TextStyle(color: Colors.white),
@@ -1350,7 +1339,7 @@ class _AddDangerZoneSheetState extends State<_AddDangerZoneSheet> {
           ),
           const SizedBox(height: 12),
 
-          // Photo
+          
           Row(
             children: [
               GestureDetector(
@@ -1380,7 +1369,7 @@ class _AddDangerZoneSheetState extends State<_AddDangerZoneSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Submit
+          
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -1418,8 +1407,6 @@ class _AddDangerZoneSheetState extends State<_AddDangerZoneSheet> {
     );
   }
 }
-
-// ─── Coordinates Overlay ────────────────────────────────────────────────────
 
 class _CoordinatesOverlay extends StatelessWidget {
   final LatLng center;

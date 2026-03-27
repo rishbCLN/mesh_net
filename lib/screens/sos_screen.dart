@@ -56,12 +56,12 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
 
     await nearbyService.sendSOS(sosMessage);
 
-    // Fire all gateway escape channels on SOS
+    
     try {
       final gateway = Provider.of<GatewayService>(context, listen: false);
       gateway.hardSOSActivated();
     } catch (_) {
-      // Gateway may not be initialized yet
+      
     }
     
     setState(() {
@@ -69,7 +69,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
       _deviceCount = nearbyService.connectedDevices.length;
     });
 
-    // Reset after 3 seconds
+    
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         setState(() {
@@ -99,7 +99,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Connection status
+                  
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
@@ -134,7 +134,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                   ),
                   const SizedBox(height: 60),
                   
-                  // Pulsing SOS button
+                  
                   AnimatedBuilder(
                     animation: _pulseController,
                     builder: (context, child) {
@@ -177,7 +177,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                   ),
                   const SizedBox(height: 40),
                   
-                  // Confirmation message
+                  
                   if (_sosSent)
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -206,7 +206,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                     ),
                   const SizedBox(height: 40),
                   
-                  // Condition picker
+                  
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -267,7 +267,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                   ),
                   const SizedBox(height: 16),
                   
-                  // Custom message input
+                  
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -306,7 +306,7 @@ class _SosScreenState extends State<SosScreen> with SingleTickerProviderStateMix
                   ),
                   const SizedBox(height: 40),
                   
-                  // Instructions
+                  
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(

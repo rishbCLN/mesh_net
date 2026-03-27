@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../models/triage_status.dart';
 import '../services/nearby_service.dart';
 
-/// Call this to open the triage bottom-sheet from anywhere.
 Future<void> showTriagePicker(BuildContext context) {
   return showModalBottomSheet(
     context: context,
@@ -45,7 +44,7 @@ class _TriagePickerSheetState extends State<_TriagePickerSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
+          
           Container(
             width: 40,
             height: 4,
