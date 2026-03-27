@@ -7,6 +7,19 @@ import '../models/triage_status.dart';
 import 'storage_service.dart';
 import 'nearby_service.dart';
 
+/// Uploads mesh state directly to a free JSONBin.io bin.
+/// No custom backend needed — the rescue website reads from the same bin.
+///
+/// Setup (one-time):
+///   1. Create a free account at https://jsonbin.io
+///   2. Copy your X-Master-Key from the API Keys page
+///   3. Create a new bin with body: {}  — note the Bin ID
+///   4. Make the bin PUBLIC (Settings → Private = OFF)
+///   5. In the app's Gateway Settings, set the URL to:
+///        https://api.jsonbin.io/v3/b/YOUR_BIN_ID
+///   6. Set the API key constant below (or in gateway settings)
+///
+/// The website fetches:  GET  https://api.jsonbin.io/v3/b/YOUR_BIN_ID/latest
 class InternetGatewayService {
   final StorageService _storage;
   final NearbyService _nearby;
@@ -18,8 +31,14 @@ class InternetGatewayService {
   DateTime? _lastUpload;
   DateTime? get lastUpload => _lastUpload;
 
-  // Backend endpoint — configurable in settings
-  String gatewayUrl = '';
+  // ── JSONBin.io config (hardcoded for hackathon — remove before production) ──
+  static const String defaultBinUrl = 'https://api.jsonbin.io/v3/b/69c63d08aa77b81da924ff94';
+  static const String defaultBinKey = r'$2a$10$H4E2tH4v/4D2UylYgZv/yewVYeBXNgTqedQ7v/eE/mx0OUWnzFOTO';
+
+  // These remain settable from Gateway Settings (override the hardcoded defaults)
+  String gatewayUrl = defaultBinUrl;
+  String jsonBinApiKey = defaultBinKey;
+
   static const Duration uploadCooldown = Duration(minutes: 5);
 
   InternetGatewayService({
@@ -50,87 +69,102 @@ class InternetGatewayService {
   }
 
   Future<void> _performGatewayUpload() async {
-    if (gatewayUrl.isEmpty) return;
+    if (gatewayUrl.isEmpty || jsonBinApiKey.isEmpty) return;
     _uploadInProgress = true;
 
     try {
-      final payload = await _buildGatewayPayload();
+      final payload = await _buildPayload();
 
+      // PUT to JSONBin.io — overwrites the bin content
       final response = await http
-          .post(
+          .put(
             Uri.parse(gatewayUrl),
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Master-Key': jsonBinApiKey,
+            },
             body: jsonEncode(payload),
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      if (response.statusCode == 200) {
         _lastUpload = DateTime.now();
         _uploadSuccess = true;
-        debugPrint('[INTERNET_GATEWAY] Upload succeeded');
+        debugPrint('[GATEWAY] JSONBin upload OK — ${payload['survivors']?.length ?? 0} survivors');
 
-        // Broadcast success to mesh so other nodes know data got out
+        // Tell the mesh that data escaped to the internet
         await _nearby.broadcastMessage(
           'GATEWAY::upload_success:${DateTime.now().toIso8601String()}',
         );
+      } else {
+        debugPrint('[GATEWAY] JSONBin responded ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
-      // Silently fail — connection may have dropped mid-upload
-      debugPrint('[INTERNET_GATEWAY] Upload failed: $e');
+      debugPrint('[GATEWAY] Upload failed: $e');
     } finally {
       _uploadInProgress = false;
     }
   }
 
-  Future<Map<String, dynamic>> _buildGatewayPayload() async {
+  /// Builds the exact JSON shape the rescue website expects:
+  /// { ts, survivors: [{ name, lat, lng, status, lastSeen }], ... }
+  Future<Map<String, dynamic>> _buildPayload() async {
     final allMessages = await _storage.getAllMessages();
-    final sosMessages = allMessages
-        .where((m) => m.isSOS)
-        .map((m) => m.toMap())
-        .toList();
 
-    final survivorList = <Map<String, dynamic>>[];
+    // ── Survivor list (website-ready format) ──
+    final survivors = <Map<String, dynamic>>[];
+
+    // Include the uploading device itself
+    if (_nearby.myLocation != null) {
+      survivors.add({
+        'name': _nearby.myEndpointId,
+        'lat': _nearby.myLocation!.latitude,
+        'lng': _nearby.myLocation!.longitude,
+        'status': _triageToStatus(_nearby.myTriageStatus),
+        'lastSeen': DateTime.now().toIso8601String(),
+      });
+    }
+
+    // Include all known peers from the mesh
     for (final entry in _nearby.peerLocations.entries) {
-      survivorList.add({
-        'peerId': entry.key,
-        'latitude': entry.value.latitude,
-        'longitude': entry.value.longitude,
-        'triage': entry.value.triageStatus.jsonValue,
+      survivors.add({
+        'name': entry.value.userName,
+        'lat': entry.value.latitude,
+        'lng': entry.value.longitude,
+        'status': _triageToStatus(entry.value.triageStatus),
         'lastSeen': entry.value.timestamp.toIso8601String(),
       });
     }
 
-    int critical = 0, injured = 0, trapped = 0;
-    for (final loc in _nearby.peerLocations.values) {
-      switch (loc.triageStatus) {
-        case TriageStatus.critical:
-          critical++;
-          break;
-        case TriageStatus.injured:
-          injured++;
-          break;
-        case TriageStatus.sos:
-          trapped++;
-          break;
-        case TriageStatus.ok:
-          break;
-      }
-    }
+    // ── SOS log ──
+    final sosLog = allMessages
+        .where((m) => m.isSOS)
+        .map((m) => {
+              'sender': m.senderName,
+              'content': m.content.replaceFirst('SOS::', ''),
+              'time': m.timestamp.toIso8601String(),
+            })
+        .toList();
 
     return {
-      'event': 'mesh_distress_upload',
-      'uploadedAt': DateTime.now().toIso8601String(),
-      'uploadedByDevice': _nearby.myEndpointId,
+      'ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'survivors': survivors,
+      'sosLog': sosLog,
+      'uploadedBy': _nearby.myEndpointId,
       'meshSize': _nearby.connectedDevices.length + 1,
-      'sosMessages': sosMessages,
-      'survivorMap': survivorList,
-      'meshStats': {
-        'totalMessages': allMessages.length,
-        'critical': critical,
-        'injured': injured,
-        'trapped': trapped,
-      },
     };
+  }
+
+  static String _triageToStatus(TriageStatus triage) {
+    switch (triage) {
+      case TriageStatus.critical:
+      case TriageStatus.sos:
+        return 'critical';
+      case TriageStatus.injured:
+        return 'injured';
+      case TriageStatus.ok:
+        return 'ok';
+    }
   }
 
   /// Force upload attempt — called manually or from Hard SOS Mode

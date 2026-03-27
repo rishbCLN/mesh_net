@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeshAlert Rescue Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <span class="site-name">MeshAlert Rescue Map</span>
+    <span class="status-pill" id="statusPill">Waiting for data</span>
+  </header>
+
+  <div class="main">
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div class="legend">
+        <div class="legend-item"><span class="dot dot-critical"></span> Critical</div>
+        <div class="legend-item"><span class="dot dot-injured"></span> Injured</div>
+        <div class="legend-item"><span class="dot dot-ok"></span> OK</div>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="sidebar-header">Survivors</div>
+      <ul class="survivor-list" id="survivorList">
+        <li class="empty-state">Waiting for mesh data...</li>
+      </ul>
+    </aside>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

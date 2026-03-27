@@ -296,6 +296,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
   final _contact2 = TextEditingController();
   final _contact3 = TextEditingController();
   final _urlController = TextEditingController();
+  final _apiKeyController = TextEditingController();
   String _selectedRole = 'survivor';
 
   @override
@@ -308,6 +309,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     final contacts = prefs.getStringList('emergency_contacts') ?? [];
     final url = prefs.getString('gateway_url') ?? '';
+    final apiKey = prefs.getString('jsonbin_api_key') ?? '';
     final role = prefs.getString('device_role') ?? 'survivor';
 
     setState(() {
@@ -315,6 +317,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
       if (contacts.length > 1) _contact2.text = contacts[1];
       if (contacts.length > 2) _contact3.text = contacts[2];
       _urlController.text = url;
+      _apiKeyController.text = apiKey;
       _selectedRole = role;
     });
   }
@@ -328,6 +331,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
 
     await gw.saveEmergencyContacts(contacts);
     await gw.saveGatewayUrl(_urlController.text.trim());
+    await gw.saveJsonBinApiKey(_apiKeyController.text.trim());
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('device_role', _selectedRole);
@@ -346,6 +350,7 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
     _contact2.dispose();
     _contact3.dispose();
     _urlController.dispose();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
@@ -393,12 +398,12 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
           const SizedBox(height: 24),
 
           // Internet Gateway URL
-          const Text('Internet Gateway URL',
+          const Text('JSONBin.io Gateway',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 4),
           const Text(
-            'Server endpoint for opportunistic data uploads. '
-            'Uploads happen automatically when any internet is detected.',
+            'Free JSON storage for the rescue map website. '
+            'Create a bin at jsonbin.io and paste the bin URL and API key below.',
             style: TextStyle(fontSize: 12, color: Colors.white54),
           ),
           const SizedBox(height: 8),
@@ -406,8 +411,18 @@ class _GatewaySettingsScreenState extends State<GatewaySettingsScreen> {
             controller: _urlController,
             keyboardType: TextInputType.url,
             decoration: const InputDecoration(
-              labelText: 'Gateway URL',
-              hintText: 'https://meshalert.example.com/api/gateway',
+              labelText: 'JSONBin Bin URL',
+              hintText: 'https://api.jsonbin.io/v3/b/YOUR_BIN_ID',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _apiKeyController,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'JSONBin X-Master-Key',
+              hintText: r'$2a$10$xxxxxxxxxxxxxxxxxxxx',
               border: OutlineInputBorder(),
             ),
           ),

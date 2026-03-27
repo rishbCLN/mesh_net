@@ -41,7 +41,10 @@ class GatewayService extends ChangeNotifier {
     sms.setEmergencyContacts(contacts);
     sms.startMonitoring();
 
-    internet.gatewayUrl = url;
+    internet.gatewayUrl = url.isNotEmpty ? url : InternetGatewayService.defaultBinUrl;
+    internet.jsonBinApiKey = prefs.getString('jsonbin_api_key')?.isNotEmpty == true
+        ? prefs.getString('jsonbin_api_key')!
+        : InternetGatewayService.defaultBinKey;
     internet.startMonitoring();
 
     // RescueBridge is event-driven — triggered by NearbyService peer events
@@ -99,6 +102,14 @@ class GatewayService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('gateway_url', url);
     internet.gatewayUrl = url;
+    notifyListeners();
+  }
+
+  /// Save JSONBin API key to prefs and update internet service.
+  Future<void> saveJsonBinApiKey(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('jsonbin_api_key', key);
+    internet.jsonBinApiKey = key;
     notifyListeners();
   }
 
